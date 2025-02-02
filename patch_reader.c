@@ -1,47 +1,3 @@
-/**
-	PATCH READER
-
-**/
-
-#include <iostream>
-#include <libsleigh.hh>
-
-class AssemblyPrinter : public ghidra::AssemblyEmit {
-	public:
-		void dump(const ghidra::Address &addr, const std::string &mnemonic, const std::string &body) override {
-			addr.printRaw(std::cout);
-			std::cout << ": " << mnemonic << ' ' << body << std::endl;
-  		}
-};
-
-static void PrintAssembly(ghidra::Sleigh &engine, uint64_t addr, size_t len) {
-	AssemblyPrinter asm_emit;
-	ghidra::Address cur_addr(engine.getDefaultCodeSpace(), addr),
-      	last_addr(engine.getDefaultCodeSpace(), addr + len);
-  	while (cur_addr < last_addr) {
-    		int32_t instr_len = engine.printAssembly(asm_emit, cur_addr);
-    		cur_addr = cur_addr + instr_len;
-  	}
-}
-
-
-static int MT_DISASM_PATCH(void *MT_NDS32_CODE_PTR, unsigned int MT_NDS32_CODE_SIZE){
-	ghidra::AttributeId::initialize();
-	ghidra::ElementId::initialize();
-	ghidra::ContextInternal ctx;
-	//ghidra::Sleigh engine(NULL, &ctx);
-	ghidra::DocumentStorage storage;
-
-	//engine.initialize(storage);
-	//engine.allowContextSet(false);
-
-	//const auto sla_file_path = args->root_sla_dir ? sleigh::FindSpecFile(args->sla_file_name, {*args->root_sla_dir}) : sleigh::FindSpecFile(args->sla_file_name);
-
-	return 0;
-}
-
-extern "C" {
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -287,7 +243,4 @@ int main(int argc, char *argv[]){
 	munmap(MT_WIFI_PATCH_MMAP, MT_WIFI_PATCH_SIZE);
 	close(MT_WIFI_PATCH_FD);
 	return 0;
-}
-
-
 }
