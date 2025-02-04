@@ -1,3 +1,9 @@
+/**
+	Made by Edoardo Mantovani, 2025
+
+ 	Simple program which will create a new 'test' region in the ROM patch fw for Mediatek wifi, works with mt7915/81/86/22/25
+**/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
