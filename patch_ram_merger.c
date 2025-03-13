@@ -905,6 +905,43 @@ int main(int argc, char *argv[]){
 	close(final_rom_patch_fd);
 	// for finishing, strip the wifi ram code and toggle most of its content.
 
+	MT_WIFI_RAM_MMAP_TMP				= (unsigned char *)mmap(
+								NULL,
+								MT_WIFI_RAM_SIZE,
+								PROT_READ | PROT_WRITE,
+								MAP_ANON  | MAP_PRIVATE,
+								-1,
+								0x00
+							);
+
+	memset(MT_WIFI_RAM_MMAP_TMP,	0x00,			MT_WIFI_RAM_SIZE);
+	memcpy(MT_WIFI_RAM_MMAP_TMP,	MT_WIFI_RAM_MMAP,	MT_WIFI_RAM_SIZE);
+
+        MT_WIFI_RAM_HDR                                 = (const void *)(MT_WIFI_RAM_MMAP_TMP + MT_WIFI_RAM_SIZE - sizeof(*MT_WIFI_RAM_HDR));
+
+	for (int i = 0; i < MT_WIFI_RAM_HDR->n_region; i++) {
+                MT_RAM_SEC *region              = NULL;
+                uint32_t len                    = 0x00;
+                uint32_t addr                   = 0x00;
+                uint32_t mode                   = 0x00;
+
+                region                          = (const void *)((const u8 *)MT_WIFI_RAM_HDR - (MT_WIFI_RAM_HDR->n_region - i) * sizeof(*region));
+
+                len                             = le32_to_cpu(region->len);
+                addr                            = le32_to_cpu(region->addr);
+		if (region->feature_set & FW_FEATURE_OVERRIDE_ADDR){
+			region->addr		= addr 				+ cpu_to_le32(MT_RAM_WIFI_BYTES_TO_SKIP_FIRST_REGION);
+			region->len		= cpu_to_le32(region->len) 	- cpu_to_le32(MT_RAM_WIFI_BYTES_TO_SKIP_FIRST_REGION);
+		}else if( !( region->feature_set & FW_FEATURE_NON_DL ) ) {
+			region->feature_set    |= FW_FEATURE_NON_DL;
+		}
+
+	}
+
+        int final_ram_fw_fd                          = open("final_ram_fw.bin", O_CREAT | O_RDWR, 0777);
+        write(final_ram_fw_fd,			     MT_WIFI_RAM_MMAP_TMP,	MT_WIFI_RAM_SIZE);
+	close(final_ram_fw_fd);
+
 	return 0;
 }
 
