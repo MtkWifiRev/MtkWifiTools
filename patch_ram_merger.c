@@ -866,6 +866,9 @@ int main(int argc, char *argv[]){
 		MT_WIFI_PATCH_CURR_SECT->size			= cpu_to_be32(MtkWifiRegionList[j].size);
 		MT_WIFI_PATCH_CURR_SECT->info.addr		= cpu_to_be32(MtkWifiRegionList[j].info.addr);
 		MT_WIFI_PATCH_CURR_SECT->info.len		= cpu_to_be32(MtkWifiRegionList[j].info.len);
+		MT_WIFI_PATCH_CURR_SECT->offs			= cpu_to_be32(MtkWifiRegionList[j].offs);
+
+		printf("region %d offset: 0x%x\n", 		j, cpu_to_be32(MtkWifiRegionList[j].offs));
                 //memcpy(MT_WIFI_PATCH_CURR_SECT,         	MtkWifiRegionList[j], sizeof(MT_PATCH_SEC));
 	}
 
