@@ -719,8 +719,9 @@ int main(int argc, char *argv[]){
 
         for(unsigned char j = 0; j < __be32_to_cpu(MT_WIFI_PATCH_HDR->desc.n_region); j++){
                 MT_PATCH_SEC *MT_WIFI_PATCH_CURR_SECT   = NULL;
-                uint32_t len                            = 0;
                 uint32_t addr                           = 0;
+		uint32_t saved_len			= 0;
+		uint32_t len				= 0;
                 uint32_t mode                           = 0;
                 uint32_t sec_info                       = 0;
                 uint8_t *dl                             = NULL;
@@ -735,6 +736,29 @@ int main(int argc, char *argv[]){
                 len                                     = 0x0                + __be32_to_cpu(MT_WIFI_PATCH_CURR_SECT->info.len);
                 sec_info                                = 0x0                + __be32_to_cpu(MT_WIFI_PATCH_CURR_SECT->info.sec_key_idx);
                 dl                                      = MT_WIFI_PATCH_MMAP + __be32_to_cpu(MT_WIFI_PATCH_CURR_SECT->offs);
+		saved_len				= len;
+
+		// before copying, resize the rom patch region if this overlaps with the RAM code.
+        	MediatekRamRegionNode *current          = MT_WIFI_RAM_LL->head;
+
+        	while ( current != NULL ) {
+			if( addr <= current->addr && ( addr + len ) >= current->addr ){
+				len				= (int)current->addr - (int)addr - MT_RAM_WIFI_BYTES_TO_SKIP_FIRST_REGION;
+				printf("new len in linked list is %d with addr 0x%x\n", len, addr);
+				// do the same for the 'MtkWifiRegionList' array
+				for(unsigned char k = 0; MtkWifiRegionList[k].info.addr != NULL; k++ ){
+					if( MtkWifiRegionList[k].info.addr == addr ){
+						MtkWifiRegionList[k].info.len		= len;
+						MtkWifiRegionList[k].size		= len;
+					}
+				}
+				break;
+			}
+                	current                         = current->next;
+        	}
+
+		current					= MT_WIFI_RAM_LL->head;
+
 
 		addNode(MT_WIFI_RAM_LL, addr, len, 0x00, dl);
 	}
@@ -753,6 +777,8 @@ int main(int argc, char *argv[]){
 		unsigned char 	*first_bytes_regions		= NULL;
 
                 MT_WIFI_PATCH_CURR_SECT                 	= (MT_PATCH_SEC *)(MT_WIFI_PATCH_MMAP_TMP + sizeof(*FINAL_PATCH_HDR) + j * sizeof(*MT_WIFI_PATCH_CURR_SECT));
+
+                //MT_WIFI_PATCH_CURR_SECT->info.len       	= __be32_to_cpu(saved_len);
 
 		printf("[PRETEST] addr: 0x%x len: %d ",
 			MtkWifiRegionList[j].info.addr,
