@@ -931,7 +931,7 @@ int main(int argc, char *argv[]){
                 addr                            = le32_to_cpu(region->addr);
 		if (region->feature_set & FW_FEATURE_OVERRIDE_ADDR){
 			region->addr		= addr 				+ cpu_to_le32(MT_RAM_WIFI_BYTES_TO_SKIP_FIRST_REGION);
-			region->len		= cpu_to_le32(region->len) 	- cpu_to_le32(MT_RAM_WIFI_BYTES_TO_SKIP_FIRST_REGION);
+			region->len		= 0x00			 	+ cpu_to_le32(MT_RAM_WIFI_BYTES_TO_SKIP_FIRST_REGION);
 		}else if( !( region->feature_set & FW_FEATURE_NON_DL ) ) {
 			region->feature_set    |= FW_FEATURE_NON_DL;
 		}
