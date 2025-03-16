@@ -236,6 +236,7 @@ struct MediatekFirst256BytesPreComputedCRC{
 	[MT7921_USB] = {
 		.MediatekWifiFirmwareBuildTime	= "20240826151030",
 		.MediatekWifiFirmwareSwHw	= "____010000",
+		.MediatekWifiFirmwareCRC32	= 0xff6112fb,
 		.MediatekBypassIsTested		= true,
 	},
 
@@ -418,7 +419,7 @@ void sortLinkedListByAddr(MediatekRamLinkedList *list) {
 
     // Update the list with the sorted nodes
     list->head = sorted;
-    
+
     // Update the tail pointer
     current = sorted;
     while (current != NULL && current->next != NULL) {
@@ -748,10 +749,18 @@ int main(int argc, char *argv[]){
         	        while ( LHead != NULL ) {
                 	        if( addr <= (uint32_t)LHead->addr && ( addr + len ) >= (uint32_t)LHead->addr ){
 					/** now we can modify the RAM region's size, add also the 4 bytes of the CRC size **/
-					LHead->new_length	= (uint16_t)( addr + len - (uint32_t)LHead->addr ); // + MT_WIFI_RAM_CRC_SIZE;
+					LHead->new_length	= (uint16_t)( addr + len - (uint32_t)LHead->addr );
 					LHead->length	       -= LHead->new_length;
 					/** modify the address too for avoiding to overwrite the other ROM memory region, this would cause a mcu's crash **/
 					LHead->addr	       += LHead->new_length;
+					/** move also the effective offset of the code **/
+					uint8_t *tmp_data_buck  = (uint8_t *)malloc(LHead->length);
+					memcpy(tmp_data_buck,	LHead->data + LHead->new_length,  LHead->length);
+					free(LHead->data);
+					LHead->data		= (uint8_t *)malloc(LHead->length);
+					memcpy(LHead->data,	tmp_data_buck,	LHead->length);
+					free(tmp_data_buck);
+
 					#ifdef DEBUG
                                         printf("new len is %d, old len is: %d, address is: 0x%x\n", LHead->new_length, LHead->length, LHead->addr);
 					#endif
@@ -892,6 +901,8 @@ int main(int argc, char *argv[]){
 				region->len		= cpu_to_le32(LHead->new_length);
 				printf("[ram_fw] final address and size of the OVERLAP region: 0x%x %d\n", region->addr, region->len);
 				/** now overwrite the NEXT 4 bytes with the new crc value precomputed by us **/
+				//memcpy(MT_WIFI_RAM_MMAP_FINAL[LHead->new_length], );
+
 				overlap_done		= 0x1;
                                 break;
                         }
