@@ -229,17 +229,25 @@ enum {
 struct MediatekFirst256BytesPreComputedCRC{
         unsigned char                   MediatekWifiFirmwareBuildTime[15];		           /**     use both the build time and              	**/
         unsigned char                   MediatekWifiFirmwareSwHw[10];                              /**     the sw/hw code for identifying a card fw 	**/
+	unsigned char			MediatekWifiFirmwareOpcFixup;				   /** 	   represent the bytes needed for not breaking an opcode for the CRC **/
         uint32_t                        MediatekWifiFirmwareCRC32;                                 /** 	precomputed crc32			 	**/
         unsigned char                   MediatekBypassIsTested;                                    /** 	boolean value, if is set to '0', means that this specific card
 													hasn't been tested			 	**/
 }PRECOMPUTED_CRC_TABLE[MEDIATEK_MAX_CARD_NUMBER] = {
-	[MT7921_USB] = {
+	[MT7921_USB]  = {
 		.MediatekWifiFirmwareBuildTime	= "20240826151030",
 		.MediatekWifiFirmwareSwHw	= "____010000",
-		.MediatekWifiFirmwareCRC32	= 0xff6112fb,
+		.MediatekWifiFirmwareCRC32	= 0xff2850ae,
+		.MediatekWifiFirmwareOpcFixup	= 2,
 		.MediatekBypassIsTested		= true,
 	},
-
+	[MT7921_PCIE] = {
+                .MediatekWifiFirmwareBuildTime  = "20240826151030",
+                .MediatekWifiFirmwareSwHw       = "____010000",
+                .MediatekWifiFirmwareCRC32      = 0xff2850ae,
+		.MediatekWifiFirmwareOpcFixup   = 2,
+                .MediatekBypassIsTested         = true,
+	},
 
 };
 
@@ -368,65 +376,61 @@ MediatekRamRegionNode *getNode_ByAddr(MediatekRamLinkedList *list, void *addr) {
         return NULL;
 }
 
-void sortLinkedListByAddr(MediatekRamLinkedList *list) {
-    if (list == NULL || list->head == NULL || list->head->next == NULL) {
-        // List is empty or has only one element, no need to sort
-        return;
+int sort_mediatek_ram_list(MediatekRamLinkedList *list) {
+    // Check for NULL or empty list
+    if (list == NULL || list->head == NULL || list->count <= 1) {
+        return -1;  // Nothing to sort
     }
 
-    MediatekRamRegionNode *sorted = NULL;
+    // Create an array to store pointers to all nodes
+    MediatekRamRegionNode **nodes = (MediatekRamRegionNode **)malloc(list->count * sizeof(MediatekRamRegionNode *));
+    if (nodes == NULL) {
+        return -1;  // Memory allocation failed
+    }
+
+    // Copy all node pointers to the array
     MediatekRamRegionNode *current = list->head;
-    MediatekRamRegionNode *temp;
-
-    // Remove all nodes from original list and insert into sorted list
-    while (current != NULL) {
-        // Save the next node
-        temp = current->next;
-
-        // Insert current node in sorted linked list
-        if (sorted == NULL || sorted->addr > current->addr) {
-            // Insert at the beginning
-            current->next = sorted;
-            sorted = current;
-        } else if (sorted->addr == current->addr) {
-            // Same address: prioritize nodes with is_rom_patch=1
-            if (current->is_rom_patch == 1 && sorted->is_rom_patch == 1) {
-                // Put current before sorted (at the beginning)
-                current->next = sorted;
-                sorted = current;
-            } else {
-                // Insert after the first node
-                current->next = sorted->next;
-                sorted->next = current;
-            }
-        } else {
-            // Find the right position to insert
-            MediatekRamRegionNode *search = sorted;
-            while (search->next != NULL && 
-                  (search->next->addr < current->addr || 
-                  (search->next->addr == current->addr && 
-                   current->is_rom_patch == 0 && search->next->is_rom_patch == 1))) {
-                search = search->next;
-            }
-            // Insert after search
-            current->next = search->next;
-            search->next = current;
-        }
-
-        // Move to next node
-        current = temp;
-    }
-
-    // Update the list with the sorted nodes
-    list->head = sorted;
-
-    // Update the tail pointer
-    current = sorted;
-    while (current != NULL && current->next != NULL) {
+    unsigned char i = 0;
+    while (current != NULL && i < list->count) {
+        nodes[i++] = current;
         current = current->next;
     }
+
+    // Bubble sort the array by is_rom_patch (1 before 0) and then by address
+    for (i = 0; i < list->count - 1; i++) {
+        for (unsigned char j = 0; j < list->count - i - 1; j++) {
+            // Compare is_rom_patch first (1 before 0)
+            if ((nodes[j]->is_rom_patch < nodes[j+1]->is_rom_patch) ||
+                // If is_rom_patch values are equal, compare addresses
+                (nodes[j]->is_rom_patch == nodes[j+1]->is_rom_patch && 
+                 (uintptr_t)(nodes[j]->addr) > (uintptr_t)(nodes[j+1]->addr))) {
+                // Swap nodes in the array
+                MediatekRamRegionNode *temp = nodes[j];
+                nodes[j] = nodes[j+1];
+                nodes[j+1] = temp;
+            }
+        }
+    }
+
+    // Rebuild the linked list using the sorted array
+    list->head = nodes[0];
+    current = list->head;
+    
+    for (i = 1; i < list->count; i++) {
+        current->next = nodes[i];
+        current = current->next;
+    }
+    
+    // Update the tail and make sure the last node points to NULL
     list->tail = current;
+    current->next = NULL;
+
+    // Free the temporary array
+    free(nodes);
+    
+    return 0;
 }
+
 void printList(MediatekRamLinkedList *list) {
         if (list == NULL) {
                 printf("List is NULL\n");
@@ -561,6 +565,8 @@ int main(int argc, char *argv[]){
 	int		 final_ram_fw_fd		= 0x00;
 	int		 final_rom_fw_fd		= 0x00;
 
+	signed char      MediatekCRCTableIdx		= 0x00;
+
         MediatekRamLinkedList *MT_WIFI_RAM_LL   	= NULL;
 
         if( argc != 3 ){
@@ -659,7 +665,9 @@ int main(int argc, char *argv[]){
 
         MT_WIFI_RAM_HDR                                 = (void *)(MT_WIFI_RAM_MMAP + MT_WIFI_RAM_SIZE - sizeof(*MT_WIFI_RAM_HDR));
 
-	if( check_fw(MT_WIFI_RAM_HDR) < 0 ){
+	MediatekCRCTableIdx				= check_fw(MT_WIFI_RAM_HDR);
+
+	if( MediatekCRCTableIdx < 0 ){
 		printf("[!] failed to find a suitable HW for this firmware! aborting..\n");
 		goto RELEASE_FIRST_STAGE;
 	}
@@ -752,10 +760,16 @@ int main(int argc, char *argv[]){
 					LHead->new_length	= (uint16_t)( addr + len - (uint32_t)LHead->addr );
 					LHead->length	       -= LHead->new_length;
 					/** modify the address too for avoiding to overwrite the other ROM memory region, this would cause a mcu's crash **/
-					LHead->addr	       += LHead->new_length;
+					LHead->addr	       += LHead->new_length + MT_WIFI_RAM_CRC_SIZE;
 					/** move also the effective offset of the code **/
 					uint8_t *tmp_data_buck  = (uint8_t *)malloc(LHead->length);
-					memcpy(tmp_data_buck,	LHead->data + LHead->new_length,  LHead->length);
+
+					memcpy(
+								tmp_data_buck,
+								LHead->data + LHead->new_length - 4 + PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareOpcFixup,
+								LHead->length
+					);
+
 					free(LHead->data);
 					LHead->data		= (uint8_t *)malloc(LHead->length);
 					memcpy(LHead->data,	tmp_data_buck,	LHead->length);
@@ -805,7 +819,7 @@ int main(int argc, char *argv[]){
 	MT_WIFI_PATCH_HDR->desc.n_region		= cpu_to_be32(MT_WIFI_RAM_LL->count);
 
 	/** before starting to write the region header table for the ROM patch, sort the list in base of the lowest-address-is-before **/
-	sortLinkedListByAddr(MT_WIFI_RAM_LL);
+	sort_mediatek_ram_list(MT_WIFI_RAM_LL);
 
 	/** generate now the region headers for every element in the linked list **/
 
@@ -901,7 +915,21 @@ int main(int argc, char *argv[]){
 				region->len		= cpu_to_le32(LHead->new_length);
 				printf("[ram_fw] final address and size of the OVERLAP region: 0x%x %d\n", region->addr, region->len);
 				/** now overwrite the NEXT 4 bytes with the new crc value precomputed by us **/
-				//memcpy(MT_WIFI_RAM_MMAP_FINAL[LHead->new_length], );
+
+				printf("[CRC] swapped bytes %x %x %x %x %x at offset %d with the CRC: 0x%x\n",
+					MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x4],
+					MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x3],
+					MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x2],
+					MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x1],
+					LHead->new_length - 0x4,
+					PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareCRC32
+				);
+
+				memcpy(
+					&MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - sizeof(uint32_t)],
+					&PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareCRC32,
+					sizeof(uint32_t) + PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareOpcFixup
+				);
 
 				overlap_done		= 0x1;
                                 break;
