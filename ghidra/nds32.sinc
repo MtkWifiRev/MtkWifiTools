@@ -978,6 +978,8 @@ rel8: addr is imm8s [ addr = inst_start + (imm8s << 1); ] { export *:4 addr; }
 ### Misc Instruction ###
 
 :break16 swid9 is $(I16) & opc6=0b110101 & swid9 { break(swid9:4); }
+:ex9.it is $(I16) & opc6=0b110101 & imm4u ( imm4u != 0 ) & imm5u { }
+:ex9.it is $(I16) & opc6=0b110101 & imm5u { }
 :nop16 is $(I16) & opc6=0b001001 & rt4=0b0000 & imm5u=0b00000 { }
 :nop16 is (inst_start == 0x9200) { }
 
