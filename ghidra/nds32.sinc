@@ -983,6 +983,7 @@ rel8: addr is imm8s [ addr = inst_start + (imm8s << 1); ] { export *:4 addr; }
 :nop16 is $(I16) & opc6=0b001001 & rt4=0b0000 & imm5u=0b00000 { }
 :nop16 is (inst_start == 0x9200) { }
 :ifret16 is $(I16) & (opc_hi == 0b1111010) { }
+:ifcall9 is $(I16) & (insn_start & 0xFE00) == 0x4A00 { }
 
 ### ALU Instructions (V2) ###
 
