@@ -10,8 +10,18 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <signal.h>
+#include <elf.h>
+
+#include <sys/mman.h>
+
+/** misc **/
+
+#define REGVAL_OUT_TERMINATOR 	"\n\x1b[1F\x1b[2K"
 
 /** driver based data **/
+
+#define ARRAY_SIZE(ARRAY)	sizeof(ARRAY) / sizeof((ARRAY)[0]) - 1
 
 struct mt76_connac_reg_map {
 	uint32_t phys;
@@ -63,7 +73,7 @@ struct mt76_connac_reg_map mt7915_reg_map[] = {
 		{ 0x820fb000, 0xa4200, 0x00400 }, /* WF_LMAC_TOP BN1 (WF_LPON) */
 		{ 0x820fc000, 0xa4600, 0x00200 }, /* WF_LMAC_TOP BN1 (WF_INT) */
 		{ 0x820fd000, 0xa4800, 0x00800 }, /* WF_LMAC_TOP BN1 (WF_MIB) */
-		{ 0x0, 0x0, 0x0 }, 		  /* imply end of search */
+		{ 0x00000000, 0x00000, 0x00000 }, /* End */
 };
 
 
@@ -111,7 +121,7 @@ struct mt76_connac_reg_map mt7916_reg_map[] = {
 		{ 0x820b0000, 0xae000, 0x01000 }, /* [APB2] WFSYS_ON */
 		{ 0x80020000, 0xb0000, 0x10000 }, /* WF_TOP_MISC_OFF */
 		{ 0x81020000, 0xc0000, 0x10000 }, /* WF_TOP_MISC_ON */
-		{ 0x0, 0x0, 0x0 }, 		  /* imply end of search */
+		{ 0x00000000, 0x00000, 0x00000 }, /* End */
 };
 
 
@@ -164,7 +174,7 @@ struct mt76_connac_reg_map mt7986_reg_map[] = {
 		{ 0x89020000, 0x4d2000, 0x01000 }, /* WF_MCU_GPT */
 		{ 0x89030000, 0x4d3000, 0x01000 }, /* WF_MCU_WDT */
 		{ 0x80010000, 0x4d4000, 0x01000 }, /* WF_AXIDMA */
-		{ 0x0, 0x0, 0x0 }, 		   /* imply end of search */
+		{ 0x00000000, 0x000000, 0x00000 }, /* End */
 };
 
 struct mt76_connac_reg_map mt7921_reg_map[] = {
@@ -212,6 +222,7 @@ struct mt76_connac_reg_map mt7921_reg_map[] = {
 		{ 0x820fb000, 0xa4200, 0x00400 }, /* WF_LMAC_TOP BN1 (WF_LPON) */
 		{ 0x820fc000, 0xa4600, 0x00200 }, /* WF_LMAC_TOP BN1 (WF_INT) */
 		{ 0x820fd000, 0xa4800, 0x00800 }, /* WF_LMAC_TOP BN1 (WF_MIB) */
+		{ 0x00000000, 0x00000, 0x00000 }  /* End */
 };
 
 struct mt76_connac_reg_map mt7925_reg_map[] = {
@@ -266,7 +277,7 @@ struct mt76_connac_reg_map mt7925_reg_map[] = {
 		{ 0x7c000000, 0x0f0000, 0x0010000 }, /* CONN_INFRA */
 		{ 0x70020000, 0x1f0000, 0x0010000 }, /* Reserved for CBTOP, can't switch */
 		{ 0x7c500000, 0x060000, 0x2000000 }, /* remap */
-		{ 0x0, 0x0, 0x0 } 		     /* End */
+		{ 0x00000000, 0x000000, 0x0000000 }  /* End */
 };
 
 /** start of the custom part **/
@@ -279,6 +290,7 @@ struct mt76_connac_reg_map mt7925_reg_map[] = {
 #define REGVAL_MAX_LEN			sizeof(IO_PATH) + sizeof(REGVAL)
 
 #define REGVAL_BUFSIZE			sizeof("0x80000000")
+#define IO_COMMAND_LEN			REGVAL_BUFSIZE
 
 enum{
 	_SUCCESS				= 0,
@@ -304,43 +316,177 @@ enum{
 	AUTOMATIC_MODE				= 2
 };
 
-__attribute__((hot)) static signed int REGIDX_SET_VALUE(signed int REGIDX_FD, unsigned int REGIDX_RET_ADDR) {
+typedef struct{
+	Elf32_Ehdr *ELF_HEADER;
+	Elf32_Phdr *ELF_REGIONS;
+	void	   *ELF_DATA;
+	char       *ELF_NAME;
+	int	    ELF_OFFSET_COUNTER;
+	int	    ELF_DATA_COUNTER;
+	int	    ELF_COMMIT_FD;
+}ELF_CTX;
+
+static signed int ELF_COMMIT_FD(ELF_CTX 			       *CTX,
+				void 				       *CTX_DATA,
+				unsigned int 			 	CTX_OFFSET_COUNTER,
+				unsigned int 			 	CTX_DATA_LEN){
+	CTX->ELF_COMMIT_FD					= open(CTX->ELF_NAME, O_RDWR, 0777);
+	lseek(CTX->ELF_COMMIT_FD, CTX_OFFSET_COUNTER, SEEK_SET);
+	write(CTX->ELF_COMMIT_FD, CTX_DATA, CTX_DATA_LEN);
+	close(CTX->ELF_COMMIT_FD);
+
+	return 0;
+}
+
+static signed int INITIALIZE_ELF_OUTPUT(ELF_CTX 		       *CTX,
+					unsigned int 			CTX_REGION_NUMBER,
+					unsigned int 			CTX_TOTAL_REGION_SIZE,
+					unsigned char                  *CTX_ELF_FINAL_NAME,
+					struct mt76_connac_reg_map     *CTX_REGION_MAP){
+	memset(CTX,		0x00,		sizeof(ELF_CTX));
+	CTX->ELF_HEADER				= (Elf32_Ehdr *)malloc(sizeof(Elf32_Ehdr));
+	memset(CTX->ELF_HEADER,	0x00,		sizeof(Elf32_Ehdr));
+	CTX->ELF_REGIONS			= (Elf32_Phdr *)calloc(CTX_REGION_NUMBER, sizeof(Elf32_Phdr));
+	memset(CTX->ELF_REGIONS,0x00,		sizeof(Elf32_Phdr) * CTX_REGION_NUMBER);
+	CTX->ELF_DATA				= malloc(CTX_TOTAL_REGION_SIZE);
+	CTX->ELF_NAME				= CTX_ELF_FINAL_NAME;
+
+	/** now create the final output file **/
+	CTX->ELF_COMMIT_FD			= open(CTX->ELF_NAME, O_CREAT | O_RDWR, 0777);
+	/** file created, now just close it and returns with the 'normal' operations **/
+	close(CTX->ELF_COMMIT_FD);
+
+        CTX->ELF_HEADER->e_ident[0]             = 0x7f;
+        CTX->ELF_HEADER->e_ident[1]             = 'E';
+        CTX->ELF_HEADER->e_ident[2]             = 'L';
+        CTX->ELF_HEADER->e_ident[3]             = 'F';
+        CTX->ELF_HEADER->e_ident[4]             = 0x01;
+        CTX->ELF_HEADER->e_ident[5]             = 0x01;
+        CTX->ELF_HEADER->e_ident[6]		= 0x01;
+
+        #ifndef EM_NDS32
+                #define EM_NDS32        	167
+        #endif
+
+        CTX->ELF_HEADER->e_machine              = EM_NDS32;
+        CTX->ELF_HEADER->e_shnum                = 0x00;
+        CTX->ELF_HEADER->e_shoff                = 0x00;
+        CTX->ELF_HEADER->e_phoff                = 0x00 + sizeof(Elf32_Ehdr); /** base address (0x00) + the size of the header **/
+        CTX->ELF_HEADER->e_phnum                = CTX_REGION_NUMBER;
+        CTX->ELF_HEADER->e_shnum                = 0x00;
+        CTX->ELF_HEADER->e_phentsize            = sizeof(Elf32_Phdr);
+        CTX->ELF_HEADER->e_shentsize            = sizeof(Elf32_Shdr);
+        CTX->ELF_HEADER->e_type                 = ET_EXEC;
+        CTX->ELF_HEADER->e_entry                = 0x00;
+        CTX->ELF_HEADER->e_version              = 0x01;
+        CTX->ELF_HEADER->e_shstrndx             = 0x00;
+
+	/** initialize the offset counter by pointing it directly to the first entry of the ELF's region table **/
+	CTX->ELF_OFFSET_COUNTER			= sizeof(Elf32_Ehdr) + CTX_REGION_NUMBER * sizeof(Elf32_Phdr);
+
+	/** now iterate every region of mapped data and create a new region header **/
+	for(unsigned char j = 0; j < CTX_REGION_NUMBER; j++){
+		if( CTX->ELF_REGIONS[j].p_vaddr == 0x00 && CTX_REGION_MAP[j].size != 0x00 ){
+			CTX->ELF_REGIONS[j].p_type	= PT_LOAD;
+			CTX->ELF_REGIONS[j].p_vaddr	= CTX_REGION_MAP[j].maps;
+			CTX->ELF_REGIONS[j].p_paddr     = CTX_REGION_MAP[j].phys;
+			CTX->ELF_REGIONS[j].p_memsz	= CTX_REGION_MAP[j].size;
+			CTX->ELF_REGIONS[j].p_filesz	= CTX_REGION_MAP[j].size;
+			CTX->ELF_REGIONS[j].p_offset	= CTX->ELF_OFFSET_COUNTER;
+			CTX->ELF_REGIONS[j].p_flags	= PF_R | PF_W;
+			CTX->ELF_REGIONS[j].p_align	= 0x04;
+			#ifdef REGION_DEBUG
+			printf("added new region: %d 0x%x 0x%x %d %d\n", j, CTX->ELF_REGIONS[j].p_vaddr,
+				CTX->ELF_REGIONS[j].p_paddr, CTX->ELF_REGIONS[j].p_memsz, CTX->ELF_REGIONS[j].p_offset);
+			#endif
+			CTX->ELF_OFFSET_COUNTER        += CTX->ELF_REGIONS[j].p_memsz;
+		}
+	}
+
+	#define EHDR_SZ				sizeof(Elf32_Ehdr)
+	/**  before quitting, reset 'CTX->ELF_OFFSET_COUNTER' **/
+	memcpy(CTX->ELF_DATA	+ 0x00,		CTX->ELF_HEADER,  EHDR_SZ);
+	memcpy(CTX->ELF_DATA    + EHDR_SZ,	CTX->ELF_REGIONS, CTX_REGION_NUMBER * sizeof(Elf32_Phdr));
+	CTX->ELF_OFFSET_COUNTER		        = EHDR_SZ    +    CTX_REGION_NUMBER * sizeof(Elf32_Phdr);
+
+	CTX->ELF_DATA_COUNTER			= CTX->ELF_OFFSET_COUNTER;
+	ELF_COMMIT_FD(CTX,      CTX->ELF_DATA, 	0x00, CTX->ELF_OFFSET_COUNTER);
+	return 0;
+}
+
+static signed int FREE_ELF_OUTPUT(ELF_CTX *CTX){
+	free(CTX->ELF_HEADER);
+	free(CTX->ELF_DATA);
+
+	free(CTX->ELF_REGIONS);
+	free(CTX);
+	return 0;
+}
+
+#define REGIDX_WRITE_FAIL			2
+
+__attribute__((hot)) static signed int REGIDX_SET_VALUE(unsigned char *REGIDX_NAME,
+							unsigned int   REGIDX_RET_ADDR) {
 	signed int  REGIDX_WRITE_RES		= 0x00;
+	signed int  REGIDX_FD			= 0x00;
 
-	signed char REGIDX_WRITE_BUF[REGVAL_BUFSIZE];
+	signed char REGIDX_WRITE_BUF[32];
 
-	memset(&REGIDX_WRITE_BUF, 0x00, REGVAL_BUFSIZE);
+	snprintf(REGIDX_WRITE_BUF, sizeof(REGIDX_WRITE_BUF), "0x%x", REGIDX_RET_ADDR);
 
-	snprintf(REGIDX_WRITE_BUF, REGVAL_BUFSIZE, "0x%x", REGIDX_RET_ADDR);
+	REGIDX_FD				= open(REGIDX_NAME, O_RDWR);
+	if( REGIDX_FD < 0 ){
+		printf("[!] REGIDX: I/O Error!\n");
+		return -REGIDX_WRITE_FAIL;
+	}
+	REGIDX_WRITE_RES			= write(REGIDX_FD, REGIDX_WRITE_BUF, strlen(REGIDX_WRITE_BUF));
 
-	REGIDX_WRITE_RES			= write(REGIDX_FD, REGIDX_WRITE_BUF, REGVAL_BUFSIZE);
+	close(REGIDX_FD);
 
 	return REGIDX_WRITE_RES;
 }
 
-__attribute__((hot)) static signed int REGVAL_GET_VALUE(signed int REGVAL_FD, unsigned char *REGVAL_RET_BUFFER) {
+#define REGVAL_READ_FAIL			3
+__attribute__((hot)) static signed int REGVAL_GET_VALUE(unsigned char *REGVAL_NAME,
+							unsigned int  *IO_COMMAND_OUTPUT,
+							ELF_CTX       *CTX) {
 	signed int REGVAL_READ_RES		= 0x00;
 	signed int REGVAL_READ_VALUE		= 0x00;
+	signed int REGVAL_FD			= 0x00;
+	char       REGVAL_BUFF[32];
 
-    	REGVAL_READ_RES 			= read(REGVAL_FD, REGVAL_RET_BUFFER, REGVAL_BUFSIZE - 1);
+	REGVAL_FD				= open(REGVAL_NAME, O_RDONLY);
+
+    	REGVAL_READ_RES 			= read(REGVAL_FD, REGVAL_BUFF, sizeof(REGVAL_BUFF) - 1);
+
     	if (REGVAL_READ_RES < 0) {
+		printf("[!] REGVAL FAILED READ\n");
+		close(REGVAL_FD);
         	return -ERR_FAILED_REGVAL_READ;
     	}
 
-    	REGVAL_RET_BUFFER[REGVAL_READ_RES] 	= '\0';
+    	REGVAL_BUFF[REGVAL_READ_RES] 		= '\0';
 
-    	if( sscanf(REGVAL_RET_BUFFER, "0x%x", &REGVAL_READ_VALUE) != 0x1 ){
+  	if( sscanf(REGVAL_BUFF, "0x%x", IO_COMMAND_OUTPUT) != 0x1 ){
+		close(REGVAL_FD);
         	return -ERR_FAILED_REGVAL_READ;
     	}
 
-	printf("0x%08x\n", REGVAL_READ_VALUE);
+	close(REGVAL_FD);
 
-    	return REGVAL_READ_VALUE;
+	ELF_COMMIT_FD(CTX, IO_COMMAND_OUTPUT, CTX->ELF_OFFSET_COUNTER, sizeof(uint32_t));
+
+	/** now update the final data buffer **/
+	//memcpy(CTX->ELF_DATA + CTX->ELF_DATA_COUNTER, &IO_COMMAND_OUTPUT, sizeof(uint32_t));
+	CTX->ELF_OFFSET_COUNTER			+= sizeof(uint32_t);
+
+    	return 0;
 }
 
 int main(int argc, char *argv[]){
 	if( argc != 4 ){
 		printf("[error] %s <device-number> <hardware-model> <mode>\n", argv[0]);
+                printf("\"<device-number>\" is the phyX number in /sys/kernel/debug/ieee80211/phyX/mt76/\n");
 		printf("\"<hardware-model>\" can be mt7921 or mt7925\n");
 		printf("\"<mode>\" can be --interactive or --automatic\n");
 		printf("	interactive means that the user can write the desired address to dump and see the results\n");
@@ -366,7 +512,15 @@ int main(int argc, char *argv[]){
         unsigned char REGIDX_PATH[REGIDX_MAX_LEN];
         unsigned char REGVAL_PATH[REGVAL_MAX_LEN];
 
+	unsigned char IO_COMMAND[IO_COMMAND_LEN];
+
+	unsigned int  IO_COMMAND_TO_LONG	= 0x00;
+	unsigned int  IO_COMMAND_OUTPUT		= 0x00;
+
+	unsigned int  TOTAL_ELF_REGION_SIZE	= 0x00;
+	ELF_CTX       *CTX			= NULL;
 	CONNAC_REGMAP *CONNECTED_REGMAP		= NULL;
+	unsigned long CONNECTED_REGMAP_SIZE	= 0x00;
 
 	memset(REGIDX_PATH, 0x00, REGIDX_MAX_LEN);
 	memset(REGVAL_PATH, 0x00, REGVAL_MAX_LEN);
@@ -378,26 +532,43 @@ int main(int argc, char *argv[]){
 
 	if( strstr(argv[2], "7915") != NULL ){
 		HW_CHOOSE			= HW_MT7915;
-		CONNECTED_REGMAP		= &mt7915_reg_map;
-	}else if( strstr(argv[2], "mt7916") != NULL ){
+		CONNECTED_REGMAP		= mt7915_reg_map;
+		CONNECTED_REGMAP_SIZE           = ARRAY_SIZE(mt7915_reg_map);
+	}else if( strstr(argv[2], "7916") != NULL ){
 		HW_CHOOSE			= HW_MT7916;
-		CONNECTED_REGMAP		= &mt7916_reg_map;
-	}else if( strstr(argv[2], "mt7986") != NULL ){
+		CONNECTED_REGMAP		= mt7916_reg_map;
+		CONNECTED_REGMAP_SIZE           = ARRAY_SIZE(mt7916_reg_map);
+	}else if( strstr(argv[2], "7981") != NULL ){
+                HW_CHOOSE                       = HW_MT7981;
+                CONNECTED_REGMAP                = mt7986_reg_map;
+                CONNECTED_REGMAP_SIZE           = ARRAY_SIZE(mt7986_reg_map);
+	}else if( strstr(argv[2], "7986") != NULL ){
 		HW_CHOOSE			= HW_MT7986;
-		CONNECTED_REGMAP		= &mt7986_reg_map;
-	}else if( strstr(argv[2], "mt7921") != NULL ){
+		CONNECTED_REGMAP		= mt7986_reg_map;
+		CONNECTED_REGMAP_SIZE           = ARRAY_SIZE(mt7986_reg_map);
+	}else if( strstr(argv[2], "7921") != NULL ){
                 HW_CHOOSE                       = HW_MT7921;
-                CONNECTED_REGMAP                = &mt7921_reg_map;
-        }else if( strstr(argv[2], "mt7925") != NULL ){
+                CONNECTED_REGMAP                = mt7921_reg_map;
+		CONNECTED_REGMAP_SIZE           = ARRAY_SIZE(mt7921_reg_map);
+        }else if( strstr(argv[2], "7925") != NULL ){
                 HW_CHOOSE                       = HW_MT7925;
-                CONNECTED_REGMAP                = &mt7925_reg_map;
+                CONNECTED_REGMAP                = mt7925_reg_map;
+		CONNECTED_REGMAP_SIZE		= ARRAY_SIZE(mt7925_reg_map);
         }
 
+	if( strstr(argv[3], "automatic") != NULL ){
+		printf("[*] entering automatic mode...\n");
+		MODE_CHOOSE			= AUTOMATIC_MODE;
+	}else{
+		printf("[*] entering manual mode...\n");
+		MODE_CHOOSE			= MANUAL_MODE;
+	}
 
 	/** try to open the files and verify if they exists **/
 	REGIDX_FD				= open(REGIDX_PATH, O_RDWR);
 	REGVAL_FD				= open(REGVAL_PATH, O_RDWR);
 
+	/** control the FD if exists or not. **/
 	if( REGIDX_FD < 0 || REGVAL_FD < 0 ){
 		EXCEPTION_ERROR			= ERR_WRONG_FILES;
 		goto end;
@@ -405,11 +576,42 @@ int main(int argc, char *argv[]){
 		printf("[*] opened the 2 debugfs file: %s %s\n", REGIDX_PATH, REGVAL_PATH);
 	}
 
-	REGIDX_SET_VALUE(REGIDX_FD, 0x800008);
-	REGVAL_GET_VALUE(REGVAL_FD, REGVAL_BUFF);
+	close(REGIDX_FD);
+	close(REGVAL_FD);
+
+	if( MODE_CHOOSE == AUTOMATIC_MODE ){
+		/** first iteration: count the total size of the regions and their number **/
+                for(unsigned char j = 0; j < CONNECTED_REGMAP_SIZE && CONNECTED_REGMAP[j].size != 0x00; j++){
+			TOTAL_ELF_REGION_SIZE	       += CONNECTED_REGMAP[j].size;
+		}
+
+		CTX                                     = (ELF_CTX *)malloc(sizeof(ELF_CTX));
+		/** before dumping everything, make sure to create the ELF which contains the dumped data **/
+		INITIALIZE_ELF_OUTPUT(CTX, CONNECTED_REGMAP_SIZE, TOTAL_ELF_REGION_SIZE, argv[2], CONNECTED_REGMAP);
+
+		for(unsigned char j = 0; j < CONNECTED_REGMAP_SIZE && CONNECTED_REGMAP[j].size != 0x00; j++){
+			for(unsigned int Z = 0; Z < CONNECTED_REGMAP[j].size; Z += 4){
+				IO_COMMAND_TO_LONG	= CONNECTED_REGMAP[j].phys + Z;
+        	                REGIDX_SET_VALUE(REGIDX_PATH, IO_COMMAND_TO_LONG);
+				usleep(10000);
+ 	                	if( REGVAL_GET_VALUE(REGVAL_PATH, &IO_COMMAND_OUTPUT, CTX) < 0 ){
+					break;
+				}
+                		printf("[region %d][0x%08x] 0x%08x" REGVAL_OUT_TERMINATOR, j, IO_COMMAND_TO_LONG, IO_COMMAND_OUTPUT);
+			}
+		}
+	}else{
+		while( fgets(IO_COMMAND, IO_COMMAND_LEN, stdin) != 0x00 ){
+			/** TODO **/
+		}
+	}
 
 	end:
 
+	/** free the ELF context **/
+	FREE_ELF_OUTPUT(CTX);
+
+	/** free everything and clear the array **/
         memset(REGIDX_PATH, 0x00, REGIDX_MAX_LEN);
         memset(REGVAL_PATH, 0x00, REGVAL_MAX_LEN);
 
@@ -421,7 +623,7 @@ int main(int argc, char *argv[]){
 		close(REGVAL_FD);
 	}
 
-	printf("returning with error %d\n", EXCEPTION_ERROR);
+	printf("[!] returning with error %d\n", EXCEPTION_ERROR);
 	return EXCEPTION_ERROR;
 }
 
