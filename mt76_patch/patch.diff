@@ -1,0 +1,1573 @@
+Only in /home/nds32/Desktop/linux-source-6.8.0/mt76: enter_monitor.sh
+Only in /home/nds32/Desktop/linux-source-6.8.0/mt76: ic
+diff -ur ./mt76/mac80211.c /home/nds32/Desktop/linux-source-6.8.0/mt76/mac80211.c
+--- ./mt76/mac80211.c	2025-03-15 17:08:01.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mac80211.c	2025-04-23 00:42:52.770932685 +0200
+@@ -1613,8 +1613,8 @@
+ static void
+ __mt76_csa_finish(void *priv, u8 *mac, struct ieee80211_vif *vif)
+ {
+-	if (vif->bss_conf.csa_active && ieee80211_beacon_cntdwn_is_complete(vif))
+-		ieee80211_csa_finish(vif);
++	if (vif->bss_conf.csa_active && ieee80211_beacon_cntdwn_is_complete(vif, 0))
++		ieee80211_csa_finish(vif, 0);
+ }
+ 
+ void mt76_csa_finish(struct mt76_dev *dev)
+@@ -1638,7 +1638,7 @@
+ 	if (!vif->bss_conf.csa_active)
+ 		return;
+ 
+-	dev->csa_complete |= ieee80211_beacon_cntdwn_is_complete(vif);
++	dev->csa_complete |= ieee80211_beacon_cntdwn_is_complete(vif, 0);
+ }
+ 
+ void mt76_csa_check(struct mt76_dev *dev)
+diff -ur ./mt76/Makefile /home/nds32/Desktop/linux-source-6.8.0/mt76/Makefile
+--- ./mt76/Makefile	2024-03-10 21:38:09.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/Makefile	2025-04-24 16:19:25.683019401 +0200
+@@ -1,10 +1,10 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ obj-$(CONFIG_MT76_CORE) += mt76.o
+ obj-$(CONFIG_MT76_USB) += mt76-usb.o
+-obj-$(CONFIG_MT76_SDIO) += mt76-sdio.o
+-obj-$(CONFIG_MT76x02_LIB) += mt76x02-lib.o
+-obj-$(CONFIG_MT76x02_USB) += mt76x02-usb.o
+-obj-$(CONFIG_MT76_CONNAC_LIB) += mt76-connac-lib.o
++obj-n += mt76-sdio.o
++obj-m += mt76x02-lib.o
++obj-m += mt76x02-usb.o
++obj-m += mt76-connac-lib.o
+ obj-$(CONFIG_MT792x_LIB) += mt792x-lib.o
+ obj-$(CONFIG_MT792x_USB) += mt792x-usb.o
+ 
+@@ -13,7 +13,7 @@
+ 	tx.o agg-rx.o mcu.o
+ 
+ mt76-$(CONFIG_PCI) += pci.o
+-mt76-$(CONFIG_NL80211_TESTMODE) += testmode.o
++#mt76-y += testmode.o
+ 
+ mt76-usb-y := usb.o usb_trace.o
+ mt76-sdio-y := sdio.o sdio_txrx.o
+@@ -37,11 +37,18 @@
+ mt792x-lib-$(CONFIG_ACPI) += mt792x_acpi_sar.o
+ mt792x-usb-y := mt792x_usb.o
+ 
+-obj-$(CONFIG_MT76x0_COMMON) += mt76x0/
+-obj-$(CONFIG_MT76x2_COMMON) += mt76x2/
+-obj-$(CONFIG_MT7603E) += mt7603/
+-obj-$(CONFIG_MT7615_COMMON) += mt7615/
+-obj-$(CONFIG_MT7915E) += mt7915/
+-obj-$(CONFIG_MT7921_COMMON) += mt7921/
+-obj-$(CONFIG_MT7996E) += mt7996/
+-obj-$(CONFIG_MT7925_COMMON) += mt7925/
++obj-n += mt76x0/
++obj-n += mt76x2/
++obj-n += mt7603/
++obj-n += mt7615/
++obj-n += mt7915/
++obj-y += mt7921/
++obj-n += mt7996/
++obj-n += mt7925/
++
++
++all:
++	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
++
++clean:
++	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
+diff -ur ./mt76/mt76.h /home/nds32/Desktop/linux-source-6.8.0/mt76/mt76.h
+--- ./mt76/mt76.h	2024-03-10 21:38:09.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mt76.h	2025-04-27 23:29:16.850451441 +0200
+@@ -781,9 +781,9 @@
+ 	u8 antenna_mask;
+ 	u16 chainmask;
+ 
+-#ifdef CONFIG_NL80211_TESTMODE
++//#ifdef CONFIG_NL80211_TESTMODE
+ 	struct mt76_testmode_data test;
+-#endif
++//#endif
+ 
+ 	struct delayed_work mac_work;
+ 	u8 mac_work_count;
+Only in /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7915: .mac.c.swp
+diff -ur ./mt76/mt7921/debugfs.c /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/debugfs.c
+--- ./mt76/mt7921/debugfs.c	2024-03-10 21:38:09.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/debugfs.c	2025-05-05 19:53:16.565309070 +0200
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: ISC
+ /* Copyright (C) 2020 MediaTek Inc. */
+ 
++#include <linux/sched/clock.h>
+ #include "mt7921.h"
+ 
+ static int
+@@ -29,6 +30,1011 @@
+ 
+ DEFINE_DEBUGFS_ATTRIBUTE(fops_regval, mt7921_reg_get, mt7921_reg_set,
+ 			 "0x%08llx\n");
++
++
++enum {
++        TM_SWITCH_MODE,
++        TM_SET_AT_CMD,
++        TM_QUERY_AT_CMD,
++};
++
++enum {
++        MT7921_TM_NORMAL,
++        MT7921_TM_TESTMODE,
++        MT7921_TM_ICAP,
++        MT7921_TM_ICAP_OVERLAP,
++        MT7921_TM_WIFISPECTRUM,
++};
++
++struct mt7921_rftest_cmd {
++        u8 action;
++        u8 rsv[3];
++        __le32 param0;
++        __le32 param1;
++} __packed;
++
++struct mt7921_tm_cmd {
++        u8 action;
++        u32 param0;
++        u32 param1;
++};
++
++struct mt7921_tm_evt {
++        u32 param0;
++        u32 param1;
++};
++
++unsigned char
++usb_read_wifi_mcu_pc(struct mt76_dev *dev,  uint8_t ucPcLogSel, uint32_t *pu4RetVal)
++{
++
++        #define CONNAC2X_UDMA_BASE              	0x74000000
++        #define CONNAC2X_UDMA_TX_QSEL           	(CONNAC2X_UDMA_BASE + 0x08) /* 0008 */
++        #define CONNAC2X_UDMA_RESET             	(CONNAC2X_UDMA_BASE + 0x14) /* 0014 */
++        #define CONNAC2X_UDMA_WLCFG_1           	(CONNAC2X_UDMA_BASE + 0x0C) /* 000c */
++        #define CONNAC2X_UDMA_WLCFG_0           	(CONNAC2X_UDMA_BASE + 0x18) /* 0018 */
++
++        /* For support mcu debug mechanism. +*/
++        #define USB_CTRL_EN          	           	(1 << 31)
++        #define CONNAC2X_UDMA_CONDBGCR_DATA     	(CONNAC2X_UDMA_BASE + 0xA18) /* 0A18 */
++        #define CONNAC2X_UDMA_CONDBGCR_SEL      	(CONNAC2X_UDMA_BASE + 0xA1C) /* 0A1C */
++
++	#define CONNAC2X_UDMA_MCU_PC_LOG_MASK   	(0x3F)
++	#define CONNAC2X_UDMA_MCU_PC_LOG_SHIFT  	(16)
++
++	#define PC_IDX_SWH(val, idx, mask, shift) 	((val & (~(mask << shift))) | ((mask & idx) << shift))
++
++        uint32_t u4Val 		= 0x00;
++
++        if (pu4RetVal == NULL){
++                return 0x00;
++	}
++
++        u4Val			= __mt76_rr(dev, CONNAC2X_UDMA_CONDBGCR_SEL);
++
++        u4Val 			= PC_IDX_SWH(u4Val, ucPcLogSel, CONNAC2X_UDMA_MCU_PC_LOG_MASK, CONNAC2X_UDMA_MCU_PC_LOG_SHIFT);
++
++        __mt76_wr(dev, CONNAC2X_UDMA_CONDBGCR_SEL, u4Val);
++        *pu4RetVal		= __mt76_rr(dev, CONNAC2X_UDMA_CONDBGCR_DATA);
++
++        return 0x00;
++}
++
++/** read the PC on mt7921e **/
++static uint8_t
++pcie_read_wifi_mcu_pc(struct mt76_dev *dev, uint8_t ucPcLogSel, uint32_t *pu4RetVal)
++{
++
++	#define PCIE_CTRL_EN            (1 << 28)
++	#define CONNAC2X_PCIE_CONDBGCR_CTRL             (0xE009C)
++	#define CONNAC2X_PCIE_CONDBGCR_DATA             (0xE0204)
++	#define CONNAC2X_PCIE_CONDBGCR_LR_DATA          (0xE0208)
++	#define CONNAC2X_PCIE_CONDBGCR_SEL              (0xE0090)
++	#define CONNAC2X_PCIE_MCU_PC_LOG_MASK   (0x3F)
++	#define CONNAC2X_PCIE_MCU_PC_LOG_SHIFT  (2)
++	#define CONNAC2X_PCIE_MCU_LR_LOG_MASK   (0x3F)
++	#define CONNAC2X_PCIE_MCU_LR_LOG_SHIFT  (8)
++
++        uint32_t u4Val            = 0x00;
++
++        if (pu4RetVal == NULL){
++                return 0x00;
++        }
++
++        u4Val                     = __mt76_rr(dev, CONNAC2X_PCIE_CONDBGCR_SEL);
++        u4Val                     = PC_IDX_SWH(u4Val, ucPcLogSel, CONNAC2X_PCIE_MCU_PC_LOG_MASK, CONNAC2X_PCIE_MCU_PC_LOG_SHIFT);
++        __mt76_wr(dev, CONNAC2X_PCIE_CONDBGCR_SEL, u4Val);
++        *pu4RetVal                = __mt76_rr(dev, CONNAC2X_PCIE_CONDBGCR_DATA);
++
++        return 0x1;
++}
++
++static u_int8_t
++pcie_read_wifi_mcu_lr(struct mt76_dev *dev, uint8_t ucPcLogSel, uint32_t *pu4RetVal)
++{
++        uint32_t u4Val            = 0x00;
++
++        if (pu4RetVal == NULL){
++                return 0x00;
++        }
++
++        u4Val                     = __mt76_rr(dev, CONNAC2X_PCIE_CONDBGCR_SEL);
++        u4Val                     = PC_IDX_SWH(u4Val, ucPcLogSel, CONNAC2X_PCIE_MCU_LR_LOG_MASK, CONNAC2X_PCIE_MCU_LR_LOG_SHIFT);
++        __mt76_wr(dev, CONNAC2X_PCIE_CONDBGCR_SEL, u4Val);
++        *pu4RetVal                = __mt76_rr(dev, CONNAC2X_PCIE_CONDBGCR_LR_DATA);
++
++        return 0x1;
++}
++
++
++static int
++mt76_cpu_state_get(struct seq_file *s, void *val)
++{
++	struct mt76_dev *dev 	= (struct mt76_dev *)dev_get_drvdata(s->private);
++	uint32_t i   		= 0x00;
++        uint32_t u4Val    	= 0x00;
++
++	/** switch between the right device for dumping the PC, special registers and so on.. **/
++
++	if( is_mt7915(dev) ){
++
++	}
++
++	if( is_mt7986(dev) ){	/** apply also to mt7981 **/
++
++	}
++
++	if( is_mt7921(dev) || is_mt7922(dev) ){
++		/** for mt7921/22 we need to choose if the device is USB or PCIe based. **/
++		if( mt76_is_usb(dev) ){
++			#define CONNAC2X_UDMA_BASE        	0x74000000
++			#define CONNAC2X_UDMA_TX_QSEL     	(CONNAC2X_UDMA_BASE + 0x08) /* 0008 */
++			#define CONNAC2X_UDMA_RESET       	(CONNAC2X_UDMA_BASE + 0x14) /* 0014 */
++			#define CONNAC2X_UDMA_WLCFG_1     	(CONNAC2X_UDMA_BASE + 0x0C) /* 000c */
++			#define CONNAC2X_UDMA_WLCFG_0     	(CONNAC2X_UDMA_BASE + 0x18) /* 0018 */
++
++			/* For support mcu debug mechanism. +*/
++			#define USB_CTRL_EN             	(1 << 31)
++			#define CONNAC2X_UDMA_CONDBGCR_DATA     (CONNAC2X_UDMA_BASE + 0xA18) /* 0A18 */
++			#define CONNAC2X_UDMA_CONDBGCR_SEL      (CONNAC2X_UDMA_BASE + 0xA1C) /* 0A1C */
++			#define CONNAC2X_UDMA_WM_MONITER_SEL    (~(0x40000000))
++			#define CONNAC2X_UDMA_PC_MONITER_SEL    (~(0x20000000))
++			#define CONNAC2X_UDMA_LR_MONITER_SEL    (0x20000000)
++			#define CONNAC2X_UDMA_MCU_PC_LOG_MASK   (0x3F)
++			#define CONNAC2X_UDMA_MCU_PC_LOG_SHIFT  (16)
++			/* For support mcu debug mechanism. -*/
++
++			/* For support CFG_SUPPORT_DEBUG_SOP +*/
++			#define CONNAC2X_UDMA_BT_DBG_STATUS     (CONNAC2X_UDMA_BASE + 0xA00) /* 0A00 */
++			#define CONNAC2X_UDMA_BT_DBG_SEL        (CONNAC2X_UDMA_BASE + 0xA04) /* 0A04 */
++			#define CONNAC2X_UDMA_DBG_STATUS        (CONNAC2X_UDMA_BASE + 0xA10) /* 0A10 */
++			#define CONNAC2X_UDMA_DBG_SEL           (CONNAC2X_UDMA_BASE + 0xA14) /* 0A14 */
++
++			#define CURRENT_PC 			0x3F
++			#define PC_LOG_IDX 			0x20
++			#define PC_LOG_NUM 			32
++
++        		/* Enable USB mcu debug function. */
++        		u4Val	= __mt76_rr(dev, CONNAC2X_UDMA_CONDBGCR_SEL);
++        		u4Val  |= USB_CTRL_EN;
++        		u4Val  &= CONNAC2X_UDMA_WM_MONITER_SEL;
++        		u4Val  &= CONNAC2X_UDMA_PC_MONITER_SEL;
++        		__mt76_wr(dev, CONNAC2X_UDMA_CONDBGCR_SEL, u4Val);
++
++        		usb_read_wifi_mcu_pc(dev, CURRENT_PC, &u4Val);
++
++        		seq_printf(s, "mt7921u: Current PC LOG: 0x%08x\n", u4Val);
++
++                	for (i = 0; i < PC_LOG_NUM; i++) {
++                        	usb_read_wifi_mcu_pc(dev, i, &u4Val);
++                        	seq_printf(s, "mt7921u: PC log(%d)=0x%08x\n", i, u4Val);
++                	}
++
++                	/* Switch to LR. */
++                	u4Val	= __mt76_rr(dev, CONNAC2X_UDMA_CONDBGCR_SEL);
++                	u4Val  |= CONNAC2X_UDMA_LR_MONITER_SEL;
++                	__mt76_wr(dev, CONNAC2X_UDMA_CONDBGCR_SEL, u4Val);
++
++                	usb_read_wifi_mcu_pc(dev, PC_LOG_IDX, &u4Val);
++                	seq_printf(s, "mt7921u: LR log contorl=0x%08x\n", u4Val);
++                	for (i = 0; i < PC_LOG_NUM; i++) {
++                        	usb_read_wifi_mcu_pc(dev, i, &u4Val);
++                        	seq_printf(s, "mt7921u: LR log(%d)=0x%08x\n", i, u4Val);
++                	}
++        		/* Disable USB mcu debug function. */
++        		u4Val	= __mt76_rr(dev, CONNAC2X_UDMA_CONDBGCR_SEL);
++        		u4Val  &= ~USB_CTRL_EN;
++        		__mt76_wr(dev, CONNAC2X_UDMA_CONDBGCR_SEL, u4Val);
++
++		}else if( dev_is_pci(dev) || 1 ){	/** exclude SDIO based hardware **/
++			printk("mt7921 pcie");
++      			/* Enable PCIE mcu debug function. */
++        		u4Val	= __mt76_rr(dev, CONNAC2X_PCIE_CONDBGCR_CTRL);
++        		u4Val  |= PCIE_CTRL_EN;
++        		__mt76_wr(dev, CONNAC2X_PCIE_CONDBGCR_CTRL, u4Val);
++
++        		pcie_read_wifi_mcu_pc(dev, CURRENT_PC, &u4Val);
++
++        		seq_printf(s, "mt7921e: Current PC LOG: 0x%08x\n", u4Val);
++            pcie_read_wifi_mcu_pc(dev, PC_LOG_IDX, &u4Val);
++            seq_printf(s, "mt7921e: PC log contorl=0x%08x\n", u4Val);
++            for (i = 0; i < PC_LOG_NUM; i++) {
++                pcie_read_wifi_mcu_pc(dev, i, &u4Val);
++                seq_printf(s, "mt7921e: PC log(%d)=0x%08x\n", i, u4Val);
++            }
++	                /* Read LR log. */
++        	        pcie_read_wifi_mcu_lr(dev, PC_LOG_IDX, &u4Val);
++                	seq_printf(s, "mt7921e: LR log contorl=0x%08x\n", u4Val);
++                	for (i = 0; i < PC_LOG_NUM; i++) {
++                        	pcie_read_wifi_mcu_lr(dev, i, &u4Val);
++	                        seq_printf(s, "mt7921e: LR log(%d)=0x%08x\n", i, u4Val);
++                	}
++
++        		/* Disable PCIE mcu debug function. */
++        		u4Val	= __mt76_rr(dev, CONNAC2X_PCIE_CONDBGCR_CTRL);
++        		u4Val  &= ~PCIE_CTRL_EN;
++        		__mt76_wr(dev, CONNAC2X_PCIE_CONDBGCR_CTRL, u4Val);
++		}
++	}
++
++	if( is_mt7925(dev) ){
++		#define CONN_DBG_CTL_WF_MCU_DBGOUT_SEL_WF_MCU_DBGOUT_SEL_ADDR \
++        		CONN_DBG_CTL_WF_MCU_DBGOUT_SEL_ADDR
++		#define CONN_DBG_CTL_WF_MCU_DBGOUT_SEL_WF_MCU_DBGOUT_SEL_MASK \
++        		0x00000007
++		#define CONN_DBG_CTL_WF_MCU_DBGOUT_SEL_WF_MCU_DBGOUT_SEL_SHFT \
++        		0
++		#define CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_WF_MCU_GPR_BUS_DBGOUT_LOG_ADDR \
++        		CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_ADDR
++		#define CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_WF_MCU_GPR_BUS_DBGOUT_LOG_MASK \
++        		0xFFFFFFFF
++		#define CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_WF_MCU_GPR_BUS_DBGOUT_LOG_SHFT \
++		        0
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_SEL_WF_MCU_DBG_PC_LOG_SEL_ADDR \
++		        CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_SEL_ADDR
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_SEL_WF_MCU_DBG_PC_LOG_SEL_MASK \
++	       	 	0x0000003F
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_SEL_WF_MCU_DBG_PC_LOG_SEL_SHFT \
++      	  		0
++		#define CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_WF_MCU_GPR_BUS_DBGOUT_LOG_ADDR \
++	        	CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_ADDR
++		#define CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_WF_MCU_GPR_BUS_DBGOUT_LOG_MASK \
++	        	0xFFFFFFFF
++		#define CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_WF_MCU_GPR_BUS_DBGOUT_LOG_SHFT \
++	        	0
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_SEL_WF_MCU_DBG_PC_LOG_SEL_ADDR \
++	        	CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_SEL_ADDR
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_SEL_WF_MCU_DBG_PC_LOG_SEL_MASK \
++	        	0x0000003F
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_SEL_WF_MCU_DBG_PC_LOG_SEL_SHFT \
++	        	0
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_WF_MCU_DBG_PC_LOG_ADDR \
++        		CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_ADDR
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_WF_MCU_DBG_PC_LOG_MASK \
++        		0xFFFFFFFF
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_WF_MCU_DBG_PC_LOG_SHFT \
++        		0
++		#define CONN_DBG_CTL_WF_MCU_DBG_GPR_LOG_SEL_WF_MCU_DBG_GPR_LOG_SEL_ADDR \
++        		CONN_DBG_CTL_WF_MCU_DBG_GPR_LOG_SEL_ADDR
++		#define CONN_DBG_CTL_WF_MCU_DBG_GPR_LOG_SEL_WF_MCU_DBG_GPR_LOG_SEL_MASK \
++        		0x0000003F
++		#define CONN_DBG_CTL_WF_MCU_DBG_GPR_LOG_SEL_WF_MCU_DBG_GPR_LOG_SEL_SHFT \
++        		0
++		#define CONN_DBG_CTL_WF_CORE_PC_INDEX_FR_HIF_WF_CORE_PC_INDEX_FR_HIF_ADDR \
++        		CONN_DBG_CTL_WF_CORE_PC_INDEX_FR_HIF_ADDR
++		#define CONN_DBG_CTL_WF_CORE_PC_INDEX_FR_HIF_WF_CORE_PC_INDEX_FR_HIF_MASK \
++        		0x00001FFF
++		#define CONN_DBG_CTL_WF_CORE_PC_INDEX_FR_HIF_WF_CORE_PC_INDEX_FR_HIF_SHFT \
++        		0
++		#define CONN_INFRA_REMAPPING_OFFSET                    0x64000000
++		#define CONN_DBG_CTL_BASE 							\
++	        	(0x18023000 + CONN_INFRA_REMAPPING_OFFSET)
++		#define CONN_DBG_CTL_CONN_INFRA_BUS_CLK_DETECT_ADDR 				\
++        		(CONN_DBG_CTL_BASE + 0x000)
++		#define CONN_DBG_CTL_CONN_INFRA_BUS_TIMEOUT_IRQ_ADDR 				\
++        		(CONN_DBG_CTL_BASE + 0x400)
++		#define CONN_DBG_CTL_WF_MCU_DBGOUT_SEL_ADDR 					\
++        		(CONN_DBG_CTL_BASE + 0x604)
++		#define CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_ADDR 				\
++        		(CONN_DBG_CTL_BASE + 0x608)
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_SEL_ADDR 				\
++        		(CONN_DBG_CTL_BASE + 0x60C)
++		#define CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_ADDR 					\
++        		(CONN_DBG_CTL_BASE + 0x610)
++		#define CONN_DBG_CTL_WF_MCU_DBG_GPR_LOG_SEL_ADDR 				\
++        		(CONN_DBG_CTL_BASE + 0x614)
++		#define CONN_DBG_CTL_WF_CORE_PC_INDEX_FR_HIF_ADDR 				\
++        		(CONN_DBG_CTL_BASE + 0x620)
++		#define CONN_DBG_CTL_WF_MCUSYS_INFRA_VDNR_GEN_DEBUG_CTRL_AO_DEBUGSYS_CTRL_ADDR 	\
++       			(CONN_DBG_CTL_BASE + 0x628)
++		#define CONN_DBG_CTL_WF_MCUSYS_INFRA_VDNR_GEN_DEBUG_CTRL_AO_BUS_TIMEOUT_IRQ_ADDR \
++        		(CONN_DBG_CTL_BASE + 0x62C)
++		#define CONN_DBG_CTL_WF_VON_DEBUG_OUT_ADDR 					\
++		        (CONN_DBG_CTL_BASE + 0x638)
++
++		#undef  PC_LOG_NUM
++        	#define PC_LOG_NUM                      35
++        	#define GPR_LOG_NUM                     35
++
++		#define HAL_MCR_WR_FIELD(_prAdapter, _u4Offset, _u4FieldVal, _ucShft, _u4Mask) 	\
++		{ 										\
++        	uint32_t u4CrValue = 0; 							\
++        	u4CrValue = __mt76_rr(_prAdapter, _u4Offset); 					\
++        	u4CrValue &= (~_u4Mask); 							\
++        	u4CrValue |= ((_u4FieldVal << _ucShft) & _u4Mask); 				\
++        	__mt76_wr(_prAdapter, _u4Offset, u4CrValue); 					\
++		}
++
++		#define CPUPCR_LOG_NUM  5
++		#define CPUPCR_BUF_SZ   50
++
++        	uint32_t var_pc 	= 0;
++        	uint32_t var_lp 	= 0;
++        	uint64_t log_sec 	= 0;
++        	uint64_t log_nsec 	= 0;
++        	char log_buf_pc[CPUPCR_LOG_NUM][CPUPCR_BUF_SZ];
++        	char log_buf_lp[CPUPCR_LOG_NUM][CPUPCR_BUF_SZ];
++
++        	HAL_MCR_WR_FIELD(dev,
++                	CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_ADDR,
++                	0x3F,
++                	CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_WF_MCU_DBG_PC_LOG_SHFT,
++                	CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_WF_MCU_DBG_PC_LOG_MASK);
++
++		      HAL_MCR_WR_FIELD(dev,
++                	CONN_DBG_CTL_WF_MCU_DBG_GPR_LOG_SEL_ADDR,
++                	0x3F,
++                	CONN_DBG_CTL_WF_MCU_DBG_GPR_LOG_SEL_WF_MCU_DBG_GPR_LOG_SEL_SHFT,
++                	CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_WF_MCU_DBG_PC_LOG_MASK);
++
++        	HAL_MCR_WR_FIELD(dev,
++                	CONN_DBG_CTL_WF_MCU_DBGOUT_SEL_ADDR,
++                	0x0,
++                	CONN_DBG_CTL_WF_MCU_DBGOUT_SEL_WF_MCU_DBGOUT_SEL_SHFT,
++                	CONN_DBG_CTL_WF_MCU_DBGOUT_SEL_WF_MCU_DBGOUT_SEL_MASK);
++
++        	for (i = 0; i < CPUPCR_LOG_NUM; i++) {
++                	log_sec 	= local_clock();
++                	log_nsec 	= do_div(log_sec, 1000000000)/1000;
++
++                	var_pc		= __mt76_rr(dev, CONN_DBG_CTL_WF_MCU_DBG_PC_LOG_ADDR);
++
++                	var_lp		= __mt76_rr(dev, CONN_DBG_CTL_WF_MCU_GPR_BUS_DBGOUT_LOG_ADDR);
++
++                	snprintf(log_buf_pc[i],
++                        	CPUPCR_BUF_SZ,
++                            	"%llu.%06llu/0x%08x;",
++                            	log_sec,
++                            	log_nsec,
++                            	var_pc
++			);
++
++                	snprintf(log_buf_lp[i],
++                            	CPUPCR_BUF_SZ,
++                            	"%llu.%06llu/0x%08x;",
++                            	log_sec,
++                            	log_nsec,
++                            	var_lp);
++		}
++       		seq_printf(s, "mt7925: wm pc=%s%s%s%s%s\n", log_buf_pc[0], log_buf_pc[1], log_buf_pc[2], log_buf_pc[3], log_buf_pc[4]);
++		seq_printf(s, "mt7925: wm lp=%s%s%s%s%s\n", log_buf_lp[0], log_buf_lp[1], log_buf_lp[2], log_buf_lp[3], log_buf_lp[4]);
++	}
++	return 0;
++}
++
++	struct TX_TONE_PARAM_T {
++	        uint8_t ucAntIndex;
++	        uint8_t ucToneType;
++	        uint8_t ucToneFreq;
++	        uint8_t ucDbdcIdx;
++	        int32_t i4DcOffsetI;
++	        int32_t i4DcOffsetQ;
++	        uint32_t u4Band;
++	};
++
++	struct CONTINUOUS_TX_PARAM_T {
++	        uint8_t ucCtrlCh;
++	        uint8_t ucCentralCh;
++	        uint8_t ucBW;
++	        uint8_t ucAntIndex;
++	        uint16_t u2RateCode;
++	        uint8_t ucBand;
++	        uint8_t ucTxfdMode;
++	};
++
++	struct TX_TONE_POWER_GAIN_T {
++	        uint8_t ucAntIndex;
++	        uint8_t ucTonePowerGain;
++	        uint8_t ucBand;
++	        uint8_t aucReserved[1];
++	};
++
++	struct EXT_CMD_RDD_ON_OFF_CTRL_T {
++	        uint8_t ucDfsCtrl;
++	        uint8_t ucRddIdx;
++	        uint8_t ucRddRxSel;
++	        uint8_t ucSetVal;
++	        uint8_t aucReserved[4];
++	};
++
++	struct SET_ADC_T {
++        	uint32_t  u4ChannelFreq;
++        	uint8_t ucAntIndex;
++        	uint8_t ucBW;
++        	uint8_t   ucSX;
++        	uint8_t ucDbdcIdx;
++        	uint8_t ucRunType;
++        	uint8_t ucFType;
++	        uint8_t aucReserved[2];         /* Reserving For future */
++	};
++
++	struct SET_RX_GAIN_T {
++        	uint8_t ucLPFG;
++        	uint8_t   ucLNA;
++        	uint8_t ucDbdcIdx;
++        	uint8_t ucAntIndex;
++	};
++
++	struct SET_TTG_T {
++	        uint32_t  u4ChannelFreq;
++	        uint32_t  u4ToneFreq;
++	        uint8_t ucTTGPwrIdx;
++	        uint8_t ucDbdcIdx;
++	        uint8_t ucXtalFreq;
++	        uint8_t aucReserved[1];
++	};
++
++	struct TTG_ON_OFF_T {
++        	uint8_t ucTTGEnable;
++        	uint8_t ucDbdcIdx;
++        	uint8_t ucAntIndex;
++        	uint8_t aucReserved[1];
++	};
++
++	struct RBIST_CAP_START_T {
++        	uint32_t u4Trigger;
++        	uint32_t u4RingCapEn;
++        	uint32_t u4TriggerEvent;
++        	uint32_t u4CaptureNode;
++        	uint32_t u4CaptureLen;    	/* Unit : IQ Sample */
++        	uint32_t u4CapStopCycle;  	/* Unit : IQ Sample */
++        	uint32_t u4MacTriggerEvent;
++        	uint32_t u4SourceAddressLSB;
++        	uint32_t u4SourceAddressMSB;
++        	uint32_t u4BandIdx;
++        	uint32_t u4BW;
++        	uint32_t u4EnBitWidth;		/* 0:32bit, 1:96bit, 2:128bit */
++        	uint32_t u4Architech;		/* 0:on-chip, 1:on-the-fly */
++        	uint32_t u4PhyIdx;
++	        uint32_t u4EmiStartAddress;
++       	 	uint32_t u4EmiEndAddress;
++       	 	uint32_t u4EmiMsbAddress;
++	        uint32_t u4CapSource;
++	        uint32_t u4Reserved[2];
++	};
++
++
++	struct RF_TEST_CALIBRATION_T {
++        	uint32_t        u4FuncData;
++        	uint8_t ucDbdcIdx;
++        	uint8_t aucReserved[3];
++	};
++
++	struct RBIST_DUMP_IQ_T {
++	        uint32_t u4WfNum;
++	        uint32_t u4IQType;
++	        uint32_t u4IcapCnt; 		/*IQ Sample Count*/
++	        uint32_t u4IcapDataLen;
++	        uint8_t *pucIcapData;
++	};
++
++	struct RBIST_DUMP_RAW_DATA_T {
++        	uint32_t u4Address;
++        	uint32_t u4AddrOffset;
++        	uint32_t u4Bank;
++        	uint32_t u4BankSize;/* Uint:Kbytes */
++        	uint32_t u4Reserved[8];
++	};
++
++	struct PARAM_MTK_WIFI_TEST_STRUCT_EXT_T {
++        	uint32_t u4FuncIndex;
++        	union {
++        	        uint32_t u4FuncData;
++        	        uint32_t u4CalDump;
++        	        struct RF_TEST_CALIBRATION_T rCalParam;
++        	        struct TX_TONE_PARAM_T rTxToneParam;
++        	        struct CONTINUOUS_TX_PARAM_T rConTxParam;
++        	        struct TX_TONE_POWER_GAIN_T rTxToneGainParam;
++        	        struct RBIST_CAP_START_T rICapInfo;
++        	        struct RBIST_DUMP_RAW_DATA_T rICapDump;
++        	        struct EXT_CMD_RDD_ON_OFF_CTRL_T rRDDParam;
++        	        struct SET_ADC_T rSetADC;
++        	        struct SET_RX_GAIN_T rSetRxGain;
++        	        struct SET_TTG_T rSetTTG;
++        	        struct TTG_ON_OFF_T rTTGOnOff;
++        	} Data;
++	};
++
++	struct CMD_TEST_CTRL_EXT_T {
++        	uint8_t ucAction;
++        	uint8_t ucIcapLen;
++        	uint8_t aucReserved[2];
++       		union {
++       	         	uint32_t u4OpMode;
++       		        uint32_t u4ChannelFreq;
++        	        struct PARAM_MTK_WIFI_TEST_STRUCT_EXT_T rRfATInfo;
++        	} u;
++	};
++
++
++enum ENUM_RF_AT_FUNCID {
++        RF_AT_FUNCID_VERSION = 0,
++        RF_AT_FUNCID_COMMAND,
++};
++
++enum ENUM_RF_AT_COMMAND {
++        RF_AT_COMMAND_STOPTEST = 0,
++        RF_AT_COMMAND_STARTTX,
++        RF_AT_COMMAND_STARTRX,
++        RF_AT_COMMAND_RESET,
++        RF_AT_COMMAND_OUTPUT_POWER,     /* Payload */
++        /* Local freq is renamed to Local leakage */
++        RF_AT_COMMAND_LO_LEAKAGE,
++        /* OFDM (LTF/STF), CCK (PI,PI/2) */
++        RF_AT_COMMAND_CARRIER_SUPPR,
++        RF_AT_COMMAND_TRX_IQ_CAL,
++        RF_AT_COMMAND_TSSI_CAL,
++        RF_AT_COMMAND_DPD_CAL,
++        RF_AT_COMMAND_CW,
++        RF_AT_COMMAND_ICAP,
++        RF_AT_COMMAND_RDD,
++        RF_AT_COMMAND_CH_SWITCH_FOR_ICAP,
++        RF_AT_COMMAND_RESET_DUMP_NAME,
++        RF_AT_COMMAND_SINGLE_TONE,
++        RF_AT_COMMAND_RDD_OFF,
++        RF_AT_COMMAND_NUM
++};
++
++int
++mt7921_query_icap(void *data){
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++
++
++        struct CMD_TEST_CTRL_EXT_T rCmdTestCtrl;
++        struct PARAM_MTK_WIFI_TEST_STRUCT_EXT_T *prRfATInfo;
++        uint32_t u4SetBufferLen = 0;
++        void *pvSetBuffer = NULL;
++        int32_t rStatus;
++
++        prRfATInfo = &(rCmdTestCtrl.u.rRfATInfo);
++
++        rCmdTestCtrl.ucAction = 1;
++        prRfATInfo->u4FuncIndex = 0x11;
++        prRfATInfo->Data.rICapDump.u4Address = 0;
++        prRfATInfo->Data.rICapDump.u4AddrOffset = 0x04;
++        prRfATInfo->Data.rICapDump.u4Bank = 1;
++        prRfATInfo->Data.rICapDump.u4BankSize = 0;
++
++        return mt76_mcu_send_msg(&dev->mt76, MCU_EXT_CMD(RF_TEST), &rCmdTestCtrl, sizeof(rCmdTestCtrl), false);
++}
++
++EXPORT_SYMBOL(mt7921_query_icap);
++
++/* Trigger Event */
++#define CAP_FREE_RUN            0
++
++/* Ring Mode */
++#define CAP_RING_MODE_ENABLE    1
++#define CAP_RING_MODE_DISABLE   0
++
++static int
++mt7921_status_start_icap(void *data)
++{
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++	uint32_t u4Trigger 		= 1;
++	uint32_t u4RingCapEn 		= 0;
++	uint32_t u4Event 		= 0;
++	uint32_t u4Node 		= 0x14000000;
++	uint32_t u4Len 			= 0;
++	uint32_t u4StopCycle 		= 10;
++	uint32_t u4BW 			= 0;
++	uint32_t u4MacTriggerEvent 	= 0x2000;
++	uint32_t u4SourceAddrLSB 	= 0xefefefef;
++	uint32_t u4SourceAddrMSB 	= 0x0001efef;
++	uint32_t u4Band 		= 0;
++
++        struct CMD_TEST_CTRL_EXT_T rCmdTestCtrl;
++        struct RBIST_CAP_START_T *prCmdICapInfo;
++        struct PARAM_MTK_WIFI_TEST_STRUCT_EXT_T *prRfATInfo;
++
++        struct PARAM_MTK_WIFI_TEST_STRUCT_EXT_T rRfATInfo;
++	struct RBIST_CAP_START_T *prICapInfo = NULL;
++
++	prICapInfo			= (struct RBIST_CAP_START_T *)kmalloc(sizeof(struct RBIST_CAP_START_T), GFP_KERNEL);
++        prICapInfo 			= &(rRfATInfo.Data.rICapInfo);
++	prICapInfo->u4Trigger 		= u4Trigger;
++	prICapInfo->u4TriggerEvent 	= u4Event;
++
++        if (prICapInfo->u4TriggerEvent == CAP_FREE_RUN){
++                prICapInfo->u4RingCapEn = CAP_RING_MODE_DISABLE;
++        }else{
++                prICapInfo->u4RingCapEn = CAP_RING_MODE_ENABLE;
++	}
++
++	prICapInfo->u4CaptureNode       = u4Node;
++	prICapInfo->u4CaptureLen        = u4Len;
++	prICapInfo->u4CapStopCycle      = u4StopCycle;
++	prICapInfo->u4BW                = u4BW;
++	prICapInfo->u4MacTriggerEvent   = u4MacTriggerEvent;
++	prICapInfo->u4SourceAddressLSB  = u4SourceAddrLSB;
++	prICapInfo->u4SourceAddressMSB  = u4SourceAddrMSB;
++	prICapInfo->u4BandIdx           = u4Band;
++	prICapInfo->u4EnBitWidth        = 4;
++	prICapInfo->u4Architech         = 0;
++	prICapInfo->u4PhyIdx            = 0;
++	prICapInfo->u4EmiStartAddress   = 0;
++	prICapInfo->u4EmiEndAddress     = 0;
++	prICapInfo->u4EmiMsbAddress     = 0;
++	prICapInfo->u4CapSource 	= 0;
++
++	memset(&rCmdTestCtrl, 0x00, sizeof(struct CMD_TEST_CTRL_EXT_T));
++
++        rCmdTestCtrl.ucAction 			= 1;
++        rCmdTestCtrl.u.rRfATInfo.u4FuncIndex 	= 0x0B;
++
++        prCmdICapInfo 				= &(rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo);
++
++	memcpy(prCmdICapInfo, 	prICapInfo, 	sizeof(struct RBIST_CAP_START_T));
++	mt76_mcu_send_msg(&dev->mt76, MCU_EXT_CMD(RF_TEST), &rCmdTestCtrl, sizeof(struct CMD_TEST_CTRL_EXT_T), false);
++	return 0;
++}
++
++static int
++mt7921_status_stop_icap(void *data)
++{
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++        uint32_t u4Trigger              = 0;
++        uint32_t u4RingCapEn            = 0;
++        uint32_t u4Event                = 0;
++        uint32_t u4Node                 = 0x14000000;
++        uint32_t u4Len                  = 0;
++        uint32_t u4StopCycle            = 10;
++        uint32_t u4BW                   = 0;
++        uint32_t u4MacTriggerEvent      = 0x2000;
++        uint32_t u4SourceAddrLSB        = 0xefefefef;
++        uint32_t u4SourceAddrMSB        = 0x0001efef;
++        uint32_t u4Band                 = 0;
++
++        struct RBIST_CAP_START_T *prICapInfo = NULL;
++
++        struct CMD_TEST_CTRL_EXT_T rCmdTestCtrl;
++        struct RBIST_CAP_START_T *prCmdICapInfo;
++        struct PARAM_MTK_WIFI_TEST_STRUCT_EXT_T *prRfATInfo;
++
++        memset(&rCmdTestCtrl, 0x00, sizeof(struct CMD_TEST_CTRL_EXT_T));
++
++        rCmdTestCtrl.ucAction                   = 1;
++        rCmdTestCtrl.u.rRfATInfo.u4FuncIndex    = 0x0B;
++
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4Trigger           = u4Trigger;
++    	rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4TriggerEvent      = u4Event;
++
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4RingCapEn         = 1; // CAP_RING_MODE_ENABLE
++
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4CaptureNode       = u4Node;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4CaptureLen        = u4Len;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4CapStopCycle      = u4StopCycle;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4BW                = u4BW;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4MacTriggerEvent   = u4MacTriggerEvent;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4SourceAddressLSB  = u4SourceAddrLSB;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4SourceAddressMSB  = u4SourceAddrMSB;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4BandIdx           = u4Band;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4EnBitWidth        = 4;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4Architech         = 0;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4PhyIdx            = 0;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4EmiStartAddress   = 0;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4EmiEndAddress     = 0;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4EmiMsbAddress     = 0;
++        rCmdTestCtrl.u.rRfATInfo.Data.rICapInfo.u4CapSource         = 0;
++        return mt76_mcu_send_msg(&dev->mt76, MCU_EXT_CMD(RF_TEST), &rCmdTestCtrl, sizeof(struct CMD_TEST_CTRL_EXT_T), false);
++}
++
++
++static int
++mt7921_ate_stop(void *data)
++{
++        signed int ret                  = 0x00;
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++
++	struct mt7921_rftest_cmd cmd = {
++        	.action = 0x00,                                 /** switch   **/
++        	.param0 = (0x00),                    /** normal   **/
++        	.param1 = (0x00),                    /** NULL     **/
++	};
++
++	ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd, sizeof(cmd), false);
++	return ret;
++}
++
++static int
++mt7921_ate_start(void *data)
++{
++        signed int ret                  = 0x00;
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++
++        struct mt7921_rftest_cmd cmd = {
++                .action = 0x00,                                 /** switch   **/
++                .param0 = (0x01),                    /** normal   **/
++                .param1 = (0x00),                    /** NULL     **/
++        };
++
++        ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd, sizeof(cmd), false);
++	return ret;
++}
++
++static int
++mt7921_icap_start(void *data)
++{
++        signed int ret                  = 0x00;
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++
++	struct mt7921_rftest_cmd cmd = {
++        	.action = 0x00,                       /** switch   **/
++        	.param0 = (0x02),                     /** icap     **/
++        	.param1 = (0x00),                     /** NULL     **/
++	};
++
++	ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd, sizeof(cmd), false);
++	return ret;
++}
++
++static int
++mt7921_txframe_start(void *data)
++{
++        signed int ret                  = 0x00;
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++
++	struct mt7921_rftest_cmd cmd = {
++	        .action = 0x01,                                 /** set AT   **/
++	        .param0 = (RF_AT_FUNCID_COMMAND),    /** NULL     **/
++	        .param1 = (RF_AT_COMMAND_STARTTX),   /** NULL     **/
++	};
++
++	ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd, sizeof(cmd), false);
++	return ret;
++}
++
++static int
++mt7921_txframe_stop(void *data)
++{
++        signed int ret                  = 0x00;
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++
++        struct mt7921_rftest_cmd cmd = {
++                .action = 0x01,                                 /** set AT   **/
++                .param0 = (RF_AT_FUNCID_COMMAND),    /** NULL     **/
++                .param1 = (RF_AT_COMMAND_STOPTEST),  /** NULL     **/
++        };
++
++        ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd, sizeof(cmd), false);
++        return ret;
++}
++
++static int
++mt7921_rxframe_start(void *data)
++{
++        signed int ret                  = 0x00;
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++
++        struct mt7921_rftest_cmd cmd = {
++                .action = 0x01,                                 /** set AT   **/
++                .param0 = (RF_AT_FUNCID_COMMAND),    /** NULL     **/
++                .param1 = (RF_AT_COMMAND_STARTRX),   /** NULL     **/
++        };
++
++        ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd, sizeof(cmd), false);
++        return ret;
++}
++
++static int
++mt7921_rxframe_stop(void *data)
++{
++	signed int ret			= 0x00;
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++
++        struct mt7921_rftest_cmd cmd = {
++                .action = 0x01,                                 /** set AT   **/
++                .param0 = (RF_AT_FUNCID_COMMAND),    /** NULL     **/
++                .param1 = (RF_AT_COMMAND_STOPTEST),  /** NULL     **/
++        };
++
++        ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd, sizeof(cmd), false);
++        return ret;
++}
++
++
++static int
++mt7921_set_icap(void *data, u64 val)
++{
++        struct mt792x_dev *dev		= (struct mt792x_dev *)data;
++	//mutex_lock(&dev->mt76.mutex);
++	/**
++	if( val == 0 ){
++		mt7921_ate_start(data);
++	}else if( val == 1 ){
++		mt7921_icap_start(data);
++	}else if( val == 2 ){
++		mt7921_status_start_icap(data);
++	}else if( val == 3 ){
++		mt7921_rxframe_start(data);
++	}else if( val == 4 ){
++		mt7921_rxframe_stop(data);
++	}else if( val == 5 ){
++		mt7921_ate_stop(data);
++	}else if( val == 6 ){
++		mt7921_txframe_start(data);
++	}else if( val == 7 ){
++		mt7921_txframe_stop(data);
++	}
++	**/
++
++	//mt7921_ate_start(data);
++	mt7921_icap_start(data);
++	mt7921_status_start_icap(data);
++        mt7921_rxframe_start(data);
++	mt7921_txframe_start(data);
++	mt7921_query_icap(data);
++out:
++        //mutex_unlock(&dev->mt76.mutex);
++	return 0;
++}
++
++static int
++mt7921_set_icap_freq(void *data)
++{
++	struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++        struct mt7921_rftest_cmd cmd    = {
++                .action = 5,
++                .param0 = 2412000,
++                .param1 = 0x0,
++        };
++
++        return mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd, sizeof(cmd), false);
++}
++
++static int
++mt7921_get_icap(void *data, u64 *val)
++{
++	mt7921_query_icap(data);
++	return 0;
++        struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++        struct mt7921_tm_cmd *req       = (struct mt7921_tm_cmd *)kmalloc(sizeof(struct mt7921_tm_cmd), GFP_KERNEL);
++        req->action                     = TM_SWITCH_MODE;
++        req->param0                     = val;
++        req->param1                     = 0x2;
++
++        struct mt7921_rftest_cmd cmd    = {
++                .action = TM_SWITCH_MODE,
++                .param0 = val,
++                .param1 = 0x2,
++        };
++
++	mt7921_status_start_icap(data);
++
++        bool testmode = false, normal   = false;
++        struct mt76_connac_pm *pm       = &dev->pm;
++        struct mt76_phy *phy            = &dev->mphy;
++        int ret                         = -ENOTCONN;
++
++        mutex_lock(&dev->mt76.mutex);
++
++        if (req->action == TM_SWITCH_MODE) {
++                if (req->param0 == MT7921_TM_NORMAL)
++                        normal = true;
++                else
++                        testmode = true;
++        }
++
++        if (testmode) {
++                /* Make sure testmode running on full power mode */
++                pm->enable = false;
++                cancel_delayed_work_sync(&pm->ps_work);
++                cancel_work_sync(&pm->wake_work);
++                __mt792x_mcu_drv_pmctrl(dev);
++                phy->test.state = MT76_TM_STATE_ON;
++        }
++
++        //if (!mt76_testmode_enabled(phy)){
++          //      goto out;
++        //}
++
++        ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd, sizeof(cmd), false);
++
++        if (ret){
++                goto out;
++        }
++
++        if (normal) {
++                /* Switch back to the normal world */
++                phy->test.state = MT76_TM_STATE_OFF;
++                pm->enable = true;
++        }
++out:
++        kfree(req);
++        mutex_unlock(&dev->mt76.mutex);
++        return 0;
++}
++
++DEFINE_DEBUGFS_ATTRIBUTE(fops_icap, mt7921_get_icap, mt7921_set_icap, "0x%08llx\n");
++
++struct PARAM_CUSTOM_ICS_SNIFFER_INFO_STRUCT {
++        /* Include system all and PSSniffer */
++        uint8_t ucModule;
++        uint8_t ucAction;
++        uint8_t ucFilter;
++        uint8_t ucOperation;
++        uint16_t ucCondition[7];
++        uint8_t aucPadding0[62];
++};
++
++#define MAC_ICS_MODE            2
++#define PHY_ICS_MODE            3
++
++struct CMD_ICS_SNIFFER_INFO {
++        /* DWORD_0 - Common Part*/
++        /*Include system all and PSSniffer */
++        uint8_t ucCmdVer;
++        uint8_t ucAction;
++        uint16_t u2CmdLen;
++        /* DWORD_1 ~ x */
++        uint8_t ucModule;
++        uint8_t ucFilter;
++        uint8_t ucOperation;
++        uint8_t aucPadding0;
++        uint16_t ucCondition[7];
++        uint8_t aucPadding1[62];
++};
++
++static int
++mt7921_get_ics(void *data, u64 *val)
++{
++	struct mt792x_dev *dev          = (struct mt792x_dev *)data;
++	struct CMD_ICS_SNIFFER_INFO req = {
++		.ucModule		= 0x03,
++		.ucAction		= 0x01,
++		.ucFilter		= 0x00,
++		.ucOperation		= 0x01,
++		.ucCondition[0]		= 0x04,
++		.ucCondition[3]         = 0x00,
++	};
++        return mt76_mcu_send_msg(&dev->mt76, 0x93, &req, sizeof(req), false);
++}
++
++DEFINE_DEBUGFS_ATTRIBUTE(fops_ics, mt7921_get_ics, NULL, "0x%08llx\n");
++
++struct CMD_CSI_CONTROL_T {
++        uint8_t ucBandIdx;
++        uint8_t ucMode;
++        uint8_t ucCfgItem;
++        uint8_t ucValue1;
++        uint8_t ucValue2;
++};
++
++enum ENUM_DBDC_BN {
++        ENUM_BAND_0,
++        ENUM_BAND_1,
++        ENUM_BAND_NUM,
++#if (CFG_SUPPORT_CONNAC3X == 0)
++        ENUM_BAND_ALL,
++        ENUM_BAND_AUTO  /*Auto select by A/G band, Driver only*/
++#else
++        ENUM_BAND_ALL = 0xFE,
++        ENUM_BAND_AUTO = 0xFF,
++#endif
++};
++
++enum CSI_CONTROL_MODE_T {
++        CSI_CONTROL_MODE_STOP,
++        CSI_CONTROL_MODE_START,
++        CSI_CONTROL_MODE_SET,
++        CSI_CONTROL_MODE_NUM
++};
++
++
++static int
++mt7921_get_csi(void *data, u64 *val){
++        struct mt792x_dev *dev = data;
++
++	struct CMD_CSI_CONTROL_T req = {
++		.ucBandIdx = ENUM_BAND_0,
++		.ucMode	   = CSI_CONTROL_MODE_START,
++	};
++
++	return mt76_mcu_send_msg(&dev->mt76, 0xC2, &req, sizeof(req), false);
++}
++
++DEFINE_DEBUGFS_ATTRIBUTE(fops_csi, mt7921_get_csi, NULL, "0x%08llx\n");
++
+ static int
+ mt7921_fw_debug_set(void *data, u64 val)
+ {
+@@ -285,10 +1291,16 @@
+ 	debugfs_create_file("runtime-pm", 0600, dir, dev, &fops_pm);
+ 	debugfs_create_file("idle-timeout", 0600, dir, dev,
+ 			    &fops_pm_idle_timeout);
++
++	debugfs_create_file("icap", 0600, dir, dev, &fops_icap);
++        debugfs_create_file("ics", 0600, dir, dev, &fops_ics);
++	debugfs_create_file("csi", 0600, dir, dev, &fops_csi);
+ 	debugfs_create_file("chip_reset", 0600, dir, dev, &fops_reset);
+ 	debugfs_create_devm_seqfile(dev->mt76.dev, "runtime_pm_stats", dir,
+ 				    mt792x_pm_stats);
+ 	debugfs_create_file("deep-sleep", 0600, dir, dev, &fops_ds);
++
++	debugfs_create_devm_seqfile(dev->mt76.dev, "mt76_show_pc", dir, mt76_cpu_state_get);
+ 	if (mt76_is_sdio(&dev->mt76))
+ 		debugfs_create_devm_seqfile(dev->mt76.dev, "sched-quota", dir,
+ 					    mt7921s_sched_quota_read);
+diff -ur ./mt76/mt7921/main.c /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/main.c
+--- ./mt76/mt7921/main.c	2025-03-15 17:08:01.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/main.c	2025-04-27 23:29:58.029386717 +0200
+@@ -1396,8 +1396,8 @@
+ 	.sta_statistics = mt792x_sta_statistics,
+ 	.sched_scan_start = mt7921_start_sched_scan,
+ 	.sched_scan_stop = mt7921_stop_sched_scan,
+-	CFG80211_TESTMODE_CMD(mt7921_testmode_cmd)
+-	CFG80211_TESTMODE_DUMP(mt7921_testmode_dump)
++	//CFG80211_TESTMODE_CMD(mt7921_testmode_cmd)
++	//CFG80211_TESTMODE_DUMP(mt7921_testmode_dump)
+ #ifdef CONFIG_PM
+ 	.suspend = mt7921_suspend,
+ 	.resume = mt7921_resume,
+diff -ur ./mt76/mt7921/Makefile /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/Makefile
+--- ./mt76/mt7921/Makefile	2024-03-10 21:38:09.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/Makefile	2025-04-23 03:24:00.883275955 +0200
+@@ -2,11 +2,11 @@
+ 
+ obj-$(CONFIG_MT7921_COMMON) += mt7921-common.o
+ obj-$(CONFIG_MT7921E) += mt7921e.o
+-obj-$(CONFIG_MT7921S) += mt7921s.o
+-obj-$(CONFIG_MT7921U) += mt7921u.o
++#obj-$(CONFIG_MT7921S) += mt7921s.o
++#obj-$(CONFIG_MT7921U) += mt7921u.o
+ 
+ mt7921-common-y := mac.o mcu.o main.o init.o debugfs.o
+-mt7921-common-$(CONFIG_NL80211_TESTMODE) += testmode.o
++mt7921-common-y += testmode.o
+ mt7921e-y := pci.o pci_mac.o pci_mcu.o
+-mt7921s-y := sdio.o sdio_mac.o sdio_mcu.o
+-mt7921u-y := usb.o
++#mt7921s-y := sdio.o sdio_mac.o sdio_mcu.o
++#mt7921u-y := usb.o
+diff -ur ./mt76/mt7921/mcu.c /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/mcu.c
+--- ./mt76/mt7921/mcu.c	2025-03-15 17:08:01.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/mcu.c	2025-05-05 18:15:18.318202208 +0200
+@@ -305,6 +305,227 @@
+ 	dev_kfree_skb(skb);
+ }
+ 
++struct EXT_EVENT_RF_TEST_RESULT_T {
++        uint32_t u4FuncIndex;
++        uint32_t u4PayloadLength;
++        uint8_t  aucEvent[0];
++};
++
++struct EXT_EVENT_RBIST_DUMP_DATA_T {
++        uint32_t u4FuncIndex;
++        uint32_t u4PktNum;
++        uint32_t u4Bank;
++        uint32_t u4DataLength;
++        uint32_t u4WFCnt;
++        uint32_t u4SmplCnt;
++        uint32_t u4Reserved[6];
++        uint32_t u4Data[256];
++};
++
++struct _RBIST_IQ_DATA_T {
++        int32_t i4IQArray[4][2]; /* IQ_Array[WF][IQ] */
++};
++
++struct INIT_WIFI_EVENT {
++        uint16_t     u2RxByteCount;
++        uint16_t     u2PacketType;
++        /* Must be filled with 0xE000 (EVENT Packet) */
++        uint8_t      ucEID;
++        uint8_t      ucSeqNum;
++        uint8_t      aucReserved[2];
++
++        uint8_t      aucBuffer[0];
++};
++
++#define GET_ICAP_RAW_DATA	0x11
++#define GET_PHY_ICS_RAW_DATA	0x14
++#define SET_ICAP_CAPTURE_START  0x0B
++#define GET_ICAP_CAPTURE_STATUS 0x0C
++
++#define MAX_ICAP_IQ_DATA_CNT                                    (512 * 256)
++#define ICAP_EVENT_DATA_SAMPLE                                  256
++
++int u4ICapEventCnt 	= 0x00;
++int u4IQArrayIndex	= 0x00;
++
++int nicExtEventICapIQData(struct mt792x_dev *dev, struct EXT_EVENT_RF_TEST_RESULT_T *pucEventBuf){
++        struct EXT_EVENT_RBIST_DUMP_DATA_T *prICapEvent;
++        uint32_t Idxi = 0, Idxj = 0, Idxk = 0;
++        struct _RBIST_IQ_DATA_T *prIQArray = NULL;
++        struct ICAP_INFO_T *prIcapInfo = NULL;
++	prIQArray = kmalloc(MAX_ICAP_IQ_DATA_CNT * sizeof(struct _RBIST_IQ_DATA_T), GFP_KERNEL);
++	memset(prIQArray, 0x00, MAX_ICAP_IQ_DATA_CNT * sizeof(struct _RBIST_IQ_DATA_T));
++
++        prICapEvent = (struct EXT_EVENT_RBIST_DUMP_DATA_T *)pucEventBuf;
++        //prIcapInfo = &prAdapter->rIcapInfo;
++        //prIQArray = prIcapInfo->prIQArray;
++
++        /* If we receive the packet which is delivered from
++         * last time data-capure, we need to drop it.
++         */
++
++        printk("prICapEvent->u4PktNum = %d", prICapEvent->u4PktNum);
++
++        if (prICapEvent->u4PktNum > u4ICapEventCnt) {
++                printk("Packet out of order: Pkt num %d, EventCnt %d\n", prICapEvent->u4PktNum, u4ICapEventCnt);
++                if (prICapEvent->u4DataLength == 0){
++			return 0x00;
++		}else{
++			return 0x01;
++		}
++	}
++
++        printk("u4SmplCnt = [%d], u4WFCnt = [%d], IQArrayIndex = [%d]",
++               	prICapEvent->u4SmplCnt,
++               	prICapEvent->u4WFCnt,
++		u4IQArrayIndex
++	);
++
++	#define CAP_I_TYPE              0
++	#define CAP_Q_TYPE              1
++	#define NUM_OF_CAP_TYPE         2
++
++        if (prICapEvent->u4DataLength != 0 &&
++                prICapEvent->u4SmplCnt * prICapEvent->u4WFCnt * NUM_OF_CAP_TYPE > ICAP_EVENT_DATA_SAMPLE) {
++                prICapEvent->u4SmplCnt = ICAP_EVENT_DATA_SAMPLE / NUM_OF_CAP_TYPE;
++                printk("u4SmplCnt is larger than buffer size\n");
++        }
++
++        if (u4IQArrayIndex + prICapEvent->u4SmplCnt >= MAX_ICAP_IQ_DATA_CNT) {
++                printk("Too many packets from FW, skip rest of them\n");
++                return 0x01;
++        }
++
++
++        for (int Idxi = 0; Idxi < prICapEvent->u4SmplCnt; Idxi++) {
++                for (int Idxj = 0; Idxj < prICapEvent->u4WFCnt; Idxj++) {
++                        prIQArray[u4IQArrayIndex].i4IQArray[Idxj][CAP_I_TYPE] = prICapEvent->u4Data[Idxk++];
++                        printk("prIQArray[%d].i4IQArray[%d][CAP_I_TYPE]: %08x\n",
++                                u4IQArrayIndex,
++                                Idxj,
++                                prIQArray[u4IQArrayIndex].i4IQArray[Idxj][CAP_I_TYPE]);
++                        prIQArray[u4IQArrayIndex].i4IQArray[Idxj][CAP_Q_TYPE] = prICapEvent->u4Data[Idxk++];
++                        printk("prIQArray[%d].i4IQArray[%d][CAP_Q_TYPE]: %08x\n",
++                                u4IQArrayIndex,
++                                Idxj,
++                                prIQArray[u4IQArrayIndex].i4IQArray[Idxj][CAP_Q_TYPE]);
++                }
++                u4IQArrayIndex++;
++	}
++
++        for (Idxi = 0; Idxi < prICapEvent->u4SmplCnt; Idxi++){
++                if (prICapEvent->u4Data[Idxi] == 0){
++                        printk("Data[%d] : %08x\n", Idxi, prICapEvent->u4Data[Idxi]);
++		}
++	}
++
++	kfree(prIQArray);
++
++	if (prICapEvent->u4DataLength != 0){
++		u4ICapEventCnt++;
++	}
++        if ((prICapEvent->u4DataLength == 0) && (prICapEvent->u4PktNum == u4ICapEventCnt)) {
++                /* Reset ICapEventCnt */
++               	u4ICapEventCnt = 0;
++                printk(": ==> gen done_file\n");
++		return 0x00;
++        }else{
++		return 0x1;
++	}
++}
++
++int mt7921_query_icap(void *data);
++struct WIFI_EVENT {
++        uint16_t u2PacketLength;
++        uint16_t u2PacketType;  /* Must be filled with 0xE000 (EVENT Packet) */
++        uint8_t ucEID;
++        uint8_t ucSeqNum;
++        uint8_t ucEventVersion;
++        uint8_t aucReserved[1];
++
++        uint8_t ucExtenEID;
++        uint8_t aucReserved2[2];
++        uint8_t ucS2DIndex;
++
++        uint8_t aucBuffer[0];
++};
++
++struct EXT_EVENT_PHY_ICS_DUMP_DATA_T {
++        uint32_t u4FuncIndex; /* 0x14 = 20 */
++        uint32_t u4PktNum;
++        uint32_t u4PhyTimestamp;
++        uint32_t u4DataLen;
++        uint32_t u4Reserved[5];
++        uint32_t u4Data[256];
++};
++
++void nicExtEventPhyIcsRawData(struct mt792x_dev *dev, uint8_t *pucEventBuf)
++{
++        struct EXT_EVENT_PHY_ICS_DUMP_DATA_T *prPhyIcsEvent;
++        struct ICS_BIN_LOG_HDR *prIcsBinLogHeader;
++        void *pvPacket = NULL;
++        uint32_t u4Size = 0, Idxi = 0;
++        uint8_t *pucRecvBuff;
++
++        prPhyIcsEvent = (struct EXT_EVENT_PHY_ICS_DUMP_DATA_T *)pucEventBuf;
++
++        printk(
++               "u4PktNum = [%d], u4PhyTimestamp = [0x%08x], u4DataLen = [%d]\n",
++               prPhyIcsEvent->u4PktNum,
++               prPhyIcsEvent->u4PhyTimestamp,
++               prPhyIcsEvent->u4DataLen);
++
++        /* Print ICap data to console for debugging purpose */
++        for (Idxi = 0; Idxi < 256; Idxi++)
++                printk("Data[%d] : %08x\n", Idxi, prPhyIcsEvent->u4Data[Idxi]);
++
++    /* endian swap */
++        for (Idxi = 0; Idxi < 256; Idxi++) {
++                prPhyIcsEvent->u4Data[Idxi] =
++                        ((prPhyIcsEvent->u4Data[Idxi] & 0x000000FF) << 24)
++                        | ((prPhyIcsEvent->u4Data[Idxi] & 0x0000FF00) << 8)
++                        | ((prPhyIcsEvent->u4Data[Idxi] & 0x00FF0000) >> 8)
++                        | ((prPhyIcsEvent->u4Data[Idxi] & 0xFF000000) >> 24);
++        }
++
++
++	/**
++        if (pvPacket) {
++                prIcsBinLogHeader = (struct ICS_BIN_LOG_HDR *)pucRecvBuff;
++                prIcsBinLogHeader->u4MagicNum = ICS_BIN_LOG_MAGIC_NUM;
++                prIcsBinLogHeader->u4Timestamp = prPhyIcsEvent->u4PhyTimestamp;
++                prIcsBinLogHeader->u2MsgID = RX_PKT_TYPE_PHY_ICS;
++                prIcsBinLogHeader->u2Length =
++                        prPhyIcsEvent->u4DataLen * sizeof(uint32_t);
++
++                kalMemCopy(pucRecvBuff + sizeof(struct ICS_BIN_LOG_HDR),
++                                prPhyIcsEvent->u4Data,
++                                prPhyIcsEvent->u4DataLen * sizeof(uint32_t));
++
++                if (!prAdapter->fgIcsDumpOngoing) {
++                        if (kalOpenFwDumpFile(DUMP_FILE_ICS)
++                                != WLAN_STATUS_SUCCESS)
++                                DBGLOG(NIC, ERROR,
++                                        "open PHY ICS dump file fail\n");
++                        else
++                                prAdapter->fgIcsDumpFileOpend = TRUE;
++                        prAdapter->fgIcsDumpOngoing = TRUE;
++                }
++
++                if (prAdapter->fgIcsDumpOngoing) {
++                        if (prAdapter->fgIcsDumpFileOpend) {
++                                if (kalWriteFwDumpFile(
++                                                pucRecvBuff,
++                                                u4Size) != WLAN_STATUS_SUCCESS)
++                                        DBGLOG(NIC, ERROR,
++                                                "write PHY ICS log into file fail\n");
++                        }
++                }
++
++        }
++	**/
++}
++
+ void mt7921_mcu_rx_event(struct mt792x_dev *dev, struct sk_buff *skb)
+ {
+ 	struct mt76_connac2_mcu_rxd *rxd;
+@@ -313,6 +534,9 @@
+ 		return;
+ 
+ 	rxd = (struct mt76_connac2_mcu_rxd *)skb->data;
++	struct WIFI_EVENT *wf = (struct WIFI_EVENT *)skb->data;
++
++        //printk("rx eid: %d ext_eid: %d len: %d", rxd->eid, rxd->ext_eid, rxd->len);
+ 
+ 	if (rxd->option & MCU_UNI_CMD_UNSOLICITED_EVENT) {
+ 		mt7921_mcu_uni_rx_unsolicited_event(dev, skb);
+@@ -324,6 +548,31 @@
+ 		return;
+ 	}
+ 
++	if( rxd->eid == 0x3C ){
++		printk("received 3C");
++	}
++
++	if( rxd->eid == 237 && rxd->ext_eid == 0x04 ){
++		/** nicRfTestEventHandler(prAdapter, prEvent); **/
++		struct EXT_EVENT_RF_TEST_RESULT_T * prResult = (struct EXT_EVENT_RF_TEST_RESULT_T *)(rxd->tlv);
++		//printk("funcidx %d", prResult->u4FuncIndex);
++        	switch (prResult->u4FuncIndex) {
++        		case GET_ICAP_CAPTURE_STATUS:
++
++			break;
++			case GET_ICAP_RAW_DATA:
++				if( nicExtEventICapIQData(dev, prResult) == 0x1 ){
++					mt7921_query_icap(dev);
++				}
++			break;
++        		case GET_PHY_ICS_RAW_DATA:
++                		nicExtEventPhyIcsRawData(dev, rxd->tlv);
++                	break;
++			default:
++			break;
++		}
++	}
++
+ 	if (rxd->ext_eid == MCU_EXT_EVENT_RATE_REPORT ||
+ 	    rxd->eid == MCU_EVENT_BSS_BEACON_LOSS ||
+ 	    rxd->eid == MCU_EVENT_SCHED_SCAN_DONE ||
+diff -ur ./mt76/mt7921/testmode.c /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/testmode.c
+--- ./mt76/mt7921/testmode.c	2024-03-10 21:38:09.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mt7921/testmode.c	2025-04-28 00:23:33.243863572 +0200
+@@ -3,6 +3,31 @@
+ #include "mt7921.h"
+ #include "mcu.h"
+ 
++
++const struct nla_policy mt76_tm_policy[NUM_MT76_TM_ATTRS] = {
++        [MT76_TM_ATTR_RESET] = { .type = NLA_FLAG },
++        [MT76_TM_ATTR_STATE] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_COUNT] = { .type = NLA_U32 },
++        [MT76_TM_ATTR_TX_LENGTH] = { .type = NLA_U32 },
++        [MT76_TM_ATTR_TX_RATE_MODE] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_RATE_NSS] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_RATE_IDX] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_RATE_SGI] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_RATE_LDPC] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_RATE_STBC] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_LTF] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_ANTENNA] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_SPE_IDX] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_POWER_CONTROL] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_POWER] = { .type = NLA_NESTED },
++        [MT76_TM_ATTR_TX_DUTY_CYCLE] = { .type = NLA_U8 },
++        [MT76_TM_ATTR_TX_IPG] = { .type = NLA_U32 },
++        [MT76_TM_ATTR_TX_TIME] = { .type = NLA_U32 },
++        [MT76_TM_ATTR_FREQ_OFFSET] = { .type = NLA_U32 },
++        [MT76_TM_ATTR_DRV_DATA] = { .type = NLA_NESTED },
++};
++
++
+ enum mt7921_testmode_attr {
+ 	MT7921_TM_ATTR_UNSPEC,
+ 	MT7921_TM_ATTR_SET,
+@@ -30,7 +55,7 @@
+ 	[MT7921_TM_ATTR_QUERY] = NLA_POLICY_EXACT_LEN(sizeof(struct mt7921_tm_cmd)),
+ };
+ 
+-static int
++int
+ mt7921_tm_set(struct mt792x_dev *dev, struct mt7921_tm_cmd *req)
+ {
+ 	struct mt7921_rftest_cmd cmd = {
+@@ -55,16 +80,20 @@
+ 	if (testmode) {
+ 		/* Make sure testmode running on full power mode */
+ 		pm->enable = false;
++		printk("pm->enable = false");
+ 		cancel_delayed_work_sync(&pm->ps_work);
++		printk("cancel_delayed_work_sync(&pm->ps_work);");
+ 		cancel_work_sync(&pm->wake_work);
++		printk("cancel_work_sync(&pm->wake_work);");
+ 		__mt792x_mcu_drv_pmctrl(dev);
+-
++		printk("__mt792x_mcu_drv_pmctrl(dev);");
+ 		phy->test.state = MT76_TM_STATE_ON;
+ 	}
+ 
+-	if (!mt76_testmode_enabled(phy))
+-		goto out;
++	//if (!mt76_testmode_enabled(phy))
++	//	goto out;
+ 
++	printk("sending cmd");
+ 	ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(TEST_CTRL), &cmd,
+ 				sizeof(cmd), false);
+ 	if (ret)
+@@ -77,11 +106,12 @@
+ 	}
+ out:
+ 	mutex_unlock(&dev->mt76.mutex);
+-
++	printk("cmd sent");
+ 	return ret;
+ }
++EXPORT_SYMBOL_GPL(mt7921_tm_set);
+ 
+-static int
++int
+ mt7921_tm_query(struct mt792x_dev *dev, struct mt7921_tm_cmd *req,
+ 		struct mt7921_tm_evt *evt_resp)
+ {
+@@ -108,6 +138,8 @@
+ 	return ret;
+ }
+ 
++EXPORT_SYMBOL_GPL(mt7921_tm_query);
++
+ int mt7921_testmode_cmd(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+ 			void *data, int len)
+ {
+diff -ur ./mt76/mt792x_core.c /home/nds32/Desktop/linux-source-6.8.0/mt76/mt792x_core.c
+--- ./mt76/mt792x_core.c	2025-03-15 17:08:01.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mt792x_core.c	2025-04-23 00:37:54.249938668 +0200
+@@ -91,7 +91,7 @@
+ }
+ EXPORT_SYMBOL_GPL(mt792x_tx);
+ 
+-void mt792x_stop(struct ieee80211_hw *hw)
++void mt792x_stop(struct ieee80211_hw *hw, bool b)
+ {
+ 	struct mt792x_dev *dev = mt792x_hw_dev(hw);
+ 	struct mt792x_phy *phy = mt792x_hw_phy(hw);
+diff -ur ./mt76/mt792x.h /home/nds32/Desktop/linux-source-6.8.0/mt76/mt792x.h
+--- ./mt76/mt792x.h	2024-03-10 21:38:09.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mt792x.h	2025-04-23 00:38:34.189379600 +0200
+@@ -246,7 +246,7 @@
+ #define mt792x_mutex_release(dev)	\
+ 	mt76_connac_mutex_release(&(dev)->mt76, &(dev)->pm)
+ 
+-void mt792x_stop(struct ieee80211_hw *hw);
++void mt792x_stop(struct ieee80211_hw *hw, bool b);
+ void mt792x_pm_wake_work(struct work_struct *work);
+ void mt792x_pm_power_save_work(struct work_struct *work);
+ void mt792x_reset(struct mt76_dev *mdev);
+diff -ur ./mt76/mt792x_usb.c /home/nds32/Desktop/linux-source-6.8.0/mt76/mt792x_usb.c
+--- ./mt76/mt792x_usb.c	2024-03-10 21:38:09.000000000 +0100
++++ /home/nds32/Desktop/linux-source-6.8.0/mt76/mt792x_usb.c	2025-04-23 00:43:40.186608278 +0200
+@@ -292,7 +292,7 @@
+ 	struct mt792x_dev *dev = mt792x_hw_dev(hw);
+ 
+ 	mt76u_stop_tx(&dev->mt76);
+-	mt792x_stop(hw);
++	mt792x_stop(hw, 1);
+ }
+ EXPORT_SYMBOL_GPL(mt792xu_stop);
+ 
+Only in /home/nds32/Desktop/linux-source-6.8.0/mt76: mypath.diff
+Only in /home/nds32/Desktop/linux-source-6.8.0/mt76: run_module.sh
+Only in /home/nds32/Desktop/linux-source-6.8.0/mt76: tools
