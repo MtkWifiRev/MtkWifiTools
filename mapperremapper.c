@@ -10,7 +10,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdint.h>
-#include <signal.h>
 #include <elf.h>
 
 #include <sys/mman.h>
@@ -291,6 +290,7 @@ struct mt76_connac_reg_map mt7925_reg_map[] = {
 
 #define REGVAL_BUFSIZE			sizeof("0x80000000")
 #define IO_COMMAND_LEN			REGVAL_BUFSIZE
+#define IO_MANUAL_CMD_LEN		32
 
 enum{
 	_SUCCESS				= 0,
@@ -316,6 +316,7 @@ enum{
 	AUTOMATIC_MODE				= 2
 };
 
+/** main ELF context, used for both 'automatic' and 'manual' dumping **/
 typedef struct{
 	Elf32_Ehdr *ELF_HEADER;
 	Elf32_Phdr *ELF_REGIONS;
@@ -326,6 +327,20 @@ typedef struct{
 	int	    ELF_COMMIT_FD;
 }ELF_CTX;
 
+/* create the raw file for the raw dump ('manual' mode) **/
+static signed int RAW_CREATE_FILE(ELF_CTX *CTX, unsigned char *CTX_ELF_FINAL_NAME){
+	memset(CTX,             0x00,           sizeof(ELF_CTX));
+	CTX->ELF_OFFSET_COUNTER			= 0x00;
+	/** the handmade dumped file always finish with "_raw" **/
+        CTX->ELF_NAME				= strcat(CTX_ELF_FINAL_NAME, "_raw");
+        /** now create the final output file **/
+        CTX->ELF_COMMIT_FD                      = open(CTX->ELF_NAME, O_CREAT | O_RDWR, 0777);
+	close(CTX->ELF_COMMIT_FD);
+
+	return 0;
+}
+
+/** generic function used for writing data into both the ELF and RAW file **/
 static signed int ELF_COMMIT_FD(ELF_CTX 			       *CTX,
 				void 				       *CTX_DATA,
 				unsigned int 			 	CTX_OFFSET_COUNTER,
@@ -338,6 +353,7 @@ static signed int ELF_COMMIT_FD(ELF_CTX 			       *CTX,
 	return 0;
 }
 
+/** main function which initialize the elf output, used for 'automatic' mode **/
 static signed int INITIALIZE_ELF_OUTPUT(ELF_CTX 		       *CTX,
 					unsigned int 			CTX_REGION_NUMBER,
 					unsigned int 			CTX_TOTAL_REGION_SIZE,
@@ -356,6 +372,7 @@ static signed int INITIALIZE_ELF_OUTPUT(ELF_CTX 		       *CTX,
 	/** file created, now just close it and returns with the 'normal' operations **/
 	close(CTX->ELF_COMMIT_FD);
 
+	/** populate the ELF header **/
         CTX->ELF_HEADER->e_ident[0]             = 0x7f;
         CTX->ELF_HEADER->e_ident[1]             = 'E';
         CTX->ELF_HEADER->e_ident[2]             = 'L';
@@ -414,15 +431,23 @@ static signed int INITIALIZE_ELF_OUTPUT(ELF_CTX 		       *CTX,
 	return 0;
 }
 
+/** free the final ELF file context **/
 static signed int FREE_ELF_OUTPUT(ELF_CTX *CTX){
-	free(CTX->ELF_HEADER);
-	free(CTX->ELF_DATA);
+	if( CTX->ELF_HEADER != NULL ){
+		free(CTX->ELF_HEADER);
+	}
+	if( CTX->ELF_DATA != NULL ){
+		free(CTX->ELF_DATA);
+	}
 
-	free(CTX->ELF_REGIONS);
+	if( CTX->ELF_REGIONS != NULL ){
+		free(CTX->ELF_REGIONS);
+	}
 	free(CTX);
 	return 0;
 }
 
+/** base I/O functions for interacting with the wifi's RAM **/
 #define REGIDX_WRITE_FAIL			2
 
 __attribute__((hot)) static signed int REGIDX_SET_VALUE(unsigned char *REGIDX_NAME,
@@ -477,12 +502,12 @@ __attribute__((hot)) static signed int REGVAL_GET_VALUE(unsigned char *REGVAL_NA
 	ELF_COMMIT_FD(CTX, IO_COMMAND_OUTPUT, CTX->ELF_OFFSET_COUNTER, sizeof(uint32_t));
 
 	/** now update the final data buffer **/
-	//memcpy(CTX->ELF_DATA + CTX->ELF_DATA_COUNTER, &IO_COMMAND_OUTPUT, sizeof(uint32_t));
 	CTX->ELF_OFFSET_COUNTER			+= sizeof(uint32_t);
 
     	return 0;
 }
 
+/** main function **/
 int main(int argc, char *argv[]){
 	if( argc != 4 ){
 		printf("[error] %s <device-number> <hardware-model> <mode>\n", argv[0]);
@@ -513,9 +538,13 @@ int main(int argc, char *argv[]){
         unsigned char REGVAL_PATH[REGVAL_MAX_LEN];
 
 	unsigned char IO_COMMAND[IO_COMMAND_LEN];
+	unsigned char IO_MANUAL[IO_MANUAL_CMD_LEN];
 
 	unsigned int  IO_COMMAND_TO_LONG	= 0x00;
 	unsigned int  IO_COMMAND_OUTPUT		= 0x00;
+
+	unsigned long MANUAL_MODE_ADDRESS	= 0x00;
+	unsigned int  MANUAL_MODE_LEN		= 0x00;
 
 	unsigned int  TOTAL_ELF_REGION_SIZE	= 0x00;
 	ELF_CTX       *CTX			= NULL;
@@ -550,6 +579,10 @@ int main(int argc, char *argv[]){
                 HW_CHOOSE                       = HW_MT7921;
                 CONNECTED_REGMAP                = mt7921_reg_map;
 		CONNECTED_REGMAP_SIZE           = ARRAY_SIZE(mt7921_reg_map);
+	}else if( strstr(argv[2], "7922") != NULL ){
+                HW_CHOOSE                       = HW_MT7921;
+                CONNECTED_REGMAP                = mt7921_reg_map;
+                CONNECTED_REGMAP_SIZE           = ARRAY_SIZE(mt7921_reg_map);
         }else if( strstr(argv[2], "7925") != NULL ){
                 HW_CHOOSE                       = HW_MT7925;
                 CONNECTED_REGMAP                = mt7925_reg_map;
@@ -579,37 +612,60 @@ int main(int argc, char *argv[]){
 	close(REGIDX_FD);
 	close(REGVAL_FD);
 
+        CTX                                    	= (ELF_CTX *)malloc(sizeof(ELF_CTX));
+
 	if( MODE_CHOOSE == AUTOMATIC_MODE ){
 		/** first iteration: count the total size of the regions and their number **/
                 for(unsigned char j = 0; j < CONNECTED_REGMAP_SIZE && CONNECTED_REGMAP[j].size != 0x00; j++){
 			TOTAL_ELF_REGION_SIZE	       += CONNECTED_REGMAP[j].size;
 		}
 
-		CTX                                     = (ELF_CTX *)malloc(sizeof(ELF_CTX));
 		/** before dumping everything, make sure to create the ELF which contains the dumped data **/
 		INITIALIZE_ELF_OUTPUT(CTX, CONNECTED_REGMAP_SIZE, TOTAL_ELF_REGION_SIZE, argv[2], CONNECTED_REGMAP);
 
 		for(unsigned char j = 0; j < CONNECTED_REGMAP_SIZE && CONNECTED_REGMAP[j].size != 0x00; j++){
-			for(unsigned int Z = 0; Z < CONNECTED_REGMAP[j].size; Z += 4){
+			for(unsigned int Z = 0x00; Z < CONNECTED_REGMAP[j].size; Z += 0x4){
 				IO_COMMAND_TO_LONG	= CONNECTED_REGMAP[j].phys + Z;
         	                REGIDX_SET_VALUE(REGIDX_PATH, IO_COMMAND_TO_LONG);
-				usleep(10000);
+				usleep(500);
  	                	if( REGVAL_GET_VALUE(REGVAL_PATH, &IO_COMMAND_OUTPUT, CTX) < 0 ){
 					break;
 				}
                 		printf("[region %d][0x%08x] 0x%08x" REGVAL_OUT_TERMINATOR, j, IO_COMMAND_TO_LONG, IO_COMMAND_OUTPUT);
 			}
 		}
-	}else{
-		while( fgets(IO_COMMAND, IO_COMMAND_LEN, stdin) != 0x00 ){
-			/** TODO **/
+	}
+	if( MODE_CHOOSE == MANUAL_MODE ) {
+		printf("[*] for dumping: <address> <len>\n");
+		fgets(IO_MANUAL, IO_MANUAL_CMD_LEN, stdin);
+		sscanf(IO_MANUAL, "0x%x %d", &MANUAL_MODE_ADDRESS, &MANUAL_MODE_LEN);
+		printf("[*] 0x%x %d\n", MANUAL_MODE_ADDRESS, MANUAL_MODE_LEN);
+		if( MANUAL_MODE_ADDRESS == 0x00 || MANUAL_MODE_LEN <= 0 ){
+                        printf("[!] wrong address given or missing length!\n");
+                        goto end;
+		}else{
+			/** don't waste resources by creating an ELF file for some bytes dumped, write everything into a raw file **/
+			RAW_CREATE_FILE(CTX, argv[2]);
+			for(unsigned int Z = 0x00; Z < MANUAL_MODE_LEN; Z += 0x4){
+                                IO_COMMAND_TO_LONG      = MANUAL_MODE_ADDRESS + Z;
+                                REGIDX_SET_VALUE(REGIDX_PATH, IO_COMMAND_TO_LONG);
+                                usleep(500);
+                                if( REGVAL_GET_VALUE(REGVAL_PATH, &IO_COMMAND_OUTPUT, CTX) < 0 ){
+					printf("[!] error\n");
+                                        break;
+                                }
+                                printf("[0x%08x] 0x%08x\n", IO_COMMAND_TO_LONG, IO_COMMAND_OUTPUT);
+			}
+			printf("[*] manual mode dump finished!\n");
 		}
 	}
 
 	end:
 
 	/** free the ELF context **/
-	FREE_ELF_OUTPUT(CTX);
+	if( CTX != NULL ){
+		FREE_ELF_OUTPUT(CTX);
+	}
 
 	/** free everything and clear the array **/
         memset(REGIDX_PATH, 0x00, REGIDX_MAX_LEN);
