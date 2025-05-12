@@ -2,7 +2,8 @@
 
 ### Made by Edoardo Mantovani, 2025
 
-use strict;
+no strict;
+use POSIX ();
 use warnings;
 use Term::ANSIColor qw(color);
 
@@ -42,12 +43,25 @@ my @PP_staticlibs		= ("libopcodes.a", "libbfd.a", "libiberty.a", "libz.a");
 my @PP_cmdopts			= ("-Wno-format", "-Wno-incompatible-pointer-types", "-Wno-format-truncation", "-Wno-unused-result", " ");
 my @PP_optimizations		= ("--static -O3 ");
 my @PP_includepath		= ("./include ");
+
 $PP_finalexecname		= "barepatcher";
 $PP_outputfolder		= "./build/";
 $PP_srcfolder			= "./src/";
 $PP_libsfolder			= "./libs/";
 $PP_finalfile			= $PP_outputfolder . $PP_finalexecname;
 $PP_sourcecode			= $PP_srcfolder    . $PP_finalexecname . ".c"; 
+
+print(color("yellow"));
+
+if(  (POSIX::uname)[4] =~ "x86" ){
+	print("[*] working on intel x86 setup\n");
+	$PP_libsfolder	      .= "x86/";
+}else{
+	print("[*] working on aarch64 setup\n");
+	$PP_ibsfolder         .= "arm64/";
+}
+
+print(color("reset"));
 
 foreach( @PP_staticlibs ){
 	$PP_finalstaticlibs    .= $PP_libsfolder . $_ . " ";
