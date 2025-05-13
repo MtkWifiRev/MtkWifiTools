@@ -1,9 +1,8 @@
 #!/usr/bin/python
 
-# Made by Edoardo Mantovani, 20 December 2024
-# Simple program which permits to scan, download and analyze a vast amount of files present in the various dumps from the dumps.tadiphone.dev Gitlab repository
+# Made by Edoardo Mantovani, 20 December 2025
+# better version of MASS, permits to mass download both the firmware and userspace libraries for discovering if ICAP is enabled or not.
 
-import 	time
 import  requests
 import  sys
 import 	os
