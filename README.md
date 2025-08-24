@@ -38,3 +38,9 @@ MT7961Merge.c
 ==================
 
 Specific tool used for converting the ram + rom patch of the mt7921 (aka mt7961) hardware into an elf file, the difference if compared to the MT7981Merge, is that there is an initial padding of 1kb in the data region (otherwise the strings are mismatched).
+
+mapperremapper
+=================
+
+Used for dumping every address range present in the PCIe mapped memory table declared in mt76 into an ELF file. Works with mt7915, mt7916, mt7981, mt7986, mt7921, mt7922 and mt7925.
+It helped a lot for breaking mt7922's AES encryption.
