@@ -28,3 +28,13 @@ patch_ram_merger.c
 ==================
 
 Given the rom patch and the ram, this tool will toggle the first region of the ram and it will append it into the last region of the ROM patch.
+
+MT7981Merge.c
+==================
+
+Specific tool used for converting the ram + rom patch of the mt7981 (valid also for other firmwares like the mt7986, mt7916, mt7915 ecc..) into an ELF file.
+
+MT7961Merge.c
+==================
+
+Specific tool used for converting the ram + rom patch of the mt7921 (aka mt7961) hardware into an elf file, the difference if compared to the MT7981Merge, is that there is an initial padding of 1kb in the data region (otherwise the strings are mismatched).
