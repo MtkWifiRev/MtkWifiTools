@@ -1,3 +1,6 @@
+/**
+	Made by Edoardo Mantovani some time ago
+**/
 // given the rom patch and the ram, this tool will toggle the first region of the ram and it will append it into the last region of the ROM patch
 
 #include <stdio.h>
