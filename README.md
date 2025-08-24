@@ -7,7 +7,12 @@ this repository contains a list of tools which have been used for analyzing the 
 MASS
 ==================
 
-Python scraper which permits to download automatically every WIFI_RAM_CODE found in the https://dumps.tadiphone.dev/ repository
+Python scraper which permits to download automatically every WIFI_RAM_CODE found in the https://dumps.tadiphone.dev/ repository.
+
+mtk_real_cmd
+==================
+
+simple tool which permits to associate for every CID it's real ID inside the RAM firmware hardcoded table, useful for finding the entry of the table in the fw.
 
 android_fw_log
 ==================
@@ -17,9 +22,9 @@ simple tools which permits to set the log level and enable the wifi's log shell 
 ghidra/nds32.sinc
 ==================
 
-NDS32 ghidra plugin with the definitions for the unknown opcodes for the inlining function extension (still not working)
+NDS32 ghidra plugin with the definitions for the unknown opcodes for the inlining function extension (still not working).
 
 patch_ram_merger.c
 ==================
 
-Given the rom patch and the ram, this tool will toggle the first region of the ram and it will append it into the last region of the ROM patch
+Given the rom patch and the ram, this tool will toggle the first region of the ram and it will append it into the last region of the ROM patch.
