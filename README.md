@@ -9,3 +9,8 @@ MASS
 
 Python scraper which permits to download automatically every WIFI_RAM_CODE found in the https://dumps.tadiphone.dev/ repository
 
+android_fw_log
+==================
+
+simple tools which permits to set the log level and enable the wifi's log shell in gen4m based phones, do "strings /dev/fw_log_wifi" for reading them.
+
