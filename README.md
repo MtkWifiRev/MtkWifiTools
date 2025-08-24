@@ -14,3 +14,7 @@ android_fw_log
 
 simple tools which permits to set the log level and enable the wifi's log shell in gen4m based phones, do "strings /dev/fw_log_wifi" for reading them.
 
+ghidra/nds32.sinc
+==================
+
+NDS32 ghidra plugin with the definitions for the unknown opcodes for the inlining function extension (still not working)
