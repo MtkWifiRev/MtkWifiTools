@@ -18,3 +18,8 @@ ghidra/nds32.sinc
 ==================
 
 NDS32 ghidra plugin with the definitions for the unknown opcodes for the inlining function extension (still not working)
+
+patch_ram_merger.c
+==================
+
+Given the rom patch and the ram, this tool will toggle the first region of the ram and it will append it into the last region of the ROM patch
