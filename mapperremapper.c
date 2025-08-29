@@ -178,11 +178,14 @@ struct mt76_connac_reg_map mt7986_reg_map[] = {
 
 /** this is for the usb adapter **/
 struct mt76_connac_reg_map mt7961_reg_map[] = {
-		{ 0x915000,   0x915000,    0x59C10 },
-		{ 0x2015c00,  0x2015c00,   0x43810 },
-		{ 0x404400,   0x404400,    0x3d00  },
-		{ 0xe0270000, 0xe0270000,  0xd000  },
-		{ 0x00000000, 0x00000000,  0x0000  },
+		/** support bootrom and rom patch **/
+		{ 0x800000,   0x900000,	   0x115000 },
+		/** support ram code, used because the ROM loads the ram fw's data section at a different offset **/
+		{ 0x915000,   0x915000,    0x59C10  },
+		{ 0x2015c00,  0x2015c00,   0x43810  },
+		{ 0x404400,   0x404400,    0x3d00   },
+		{ 0xe0270000, 0xe0270000,  0xd000   },
+		{ 0x00000000, 0x00000000,  0x0000   },
 };
 
 struct mt76_connac_reg_map mt7921_reg_map[] = {
