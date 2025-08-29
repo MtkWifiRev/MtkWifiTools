@@ -176,6 +176,15 @@ struct mt76_connac_reg_map mt7986_reg_map[] = {
 		{ 0x00000000, 0x000000, 0x00000 }, /* End */
 };
 
+/** this is for the usb adapter **/
+struct mt76_connac_reg_map mt7961_reg_map[] = {
+		{ 0x915000,   0x915000,    0x59C10 },
+		{ 0x2015c00,  0x2015c00,   0x43810 },
+		{ 0x404400,   0x404400,    0x3d00  },
+		{ 0xe0270000, 0xe0270000,  0xd000  },
+		{ 0x00000000, 0x00000000,  0x0000  },
+};
+
 struct mt76_connac_reg_map mt7921_reg_map[] = {
 		{ 0x820d0000, 0x30000, 0x10000 }, /* WF_LMAC_TOP (WF_WTBLON) */
 		{ 0x820ed000, 0x24800, 0x00800 }, /* WF_LMAC_TOP BN0 (WF_MIB) */
@@ -405,7 +414,7 @@ static signed int INITIALIZE_ELF_OUTPUT(ELF_CTX 		       *CTX,
 	for(unsigned char j = 0; j < CTX_REGION_NUMBER; j++){
 		if( CTX->ELF_REGIONS[j].p_vaddr == 0x00 && CTX_REGION_MAP[j].size != 0x00 ){
 			CTX->ELF_REGIONS[j].p_type	= PT_LOAD;
-			CTX->ELF_REGIONS[j].p_vaddr	= CTX_REGION_MAP[j].maps;
+			CTX->ELF_REGIONS[j].p_vaddr	= CTX_REGION_MAP[j].phys;
 			CTX->ELF_REGIONS[j].p_paddr     = CTX_REGION_MAP[j].phys;
 			CTX->ELF_REGIONS[j].p_memsz	= CTX_REGION_MAP[j].size;
 			CTX->ELF_REGIONS[j].p_filesz	= CTX_REGION_MAP[j].size;
@@ -513,6 +522,7 @@ int main(int argc, char *argv[]){
 		printf("[error] %s <device-number> <hardware-model> <mode>\n", argv[0]);
                 printf("\"<device-number>\" is the phyX number in /sys/kernel/debug/ieee80211/phyX/mt76/\n");
 		printf("\"<hardware-model>\" can be mt7921 or mt7925\n");
+		printf("(note that mt7961 is used for dumping data from the mt7921 usb adapter!)\n");
 		printf("\"<mode>\" can be --interactive or --automatic\n");
 		printf("	interactive means that the user can write the desired address to dump and see the results\n");
 		printf("	automatic means that every memory area defined in the hardware\'s dependent struct are dumped\n");
@@ -579,6 +589,10 @@ int main(int argc, char *argv[]){
                 HW_CHOOSE                       = HW_MT7921;
                 CONNECTED_REGMAP                = mt7921_reg_map;
 		CONNECTED_REGMAP_SIZE           = ARRAY_SIZE(mt7921_reg_map);
+	}else if( strstr(argv[2], "7961") != NULL ){
+		HW_CHOOSE			= HW_MT7921;
+		CONNECTED_REGMAP		= mt7961_reg_map;
+		CONNECTED_REGMAP_SIZE		= ARRAY_SIZE(mt7961_reg_map);
 	}else if( strstr(argv[2], "7922") != NULL ){
                 HW_CHOOSE                       = HW_MT7921;
                 CONNECTED_REGMAP                = mt7921_reg_map;
