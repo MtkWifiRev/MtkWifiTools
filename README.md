@@ -49,3 +49,9 @@ auto_detect
 ==================
 
 Code example which shows how is possible to automatically get the mediatek wifi entry under sysfs, commonly used in other projects
+
+ramreader
+==================
+
+RamReader permits to read the disassembled NDS32 instructions in the live RAM by abusing the regidx/regval feature, this permits to understand where the code is relocated for certain firmwares and to read directly the assembly code in the ROM without dumping it
+( valid for some hardwares )
