@@ -55,3 +55,8 @@ ramreader
 
 RamReader permits to read the disassembled NDS32 instructions in the live RAM by abusing the regidx/regval feature, this permits to understand where the code is relocated for certain firmwares and to read directly the assembly code in the ROM without dumping it
 ( valid for some hardwares )
+
+cmd_to_realid
+==================
+
+Simple tool used for displaying the real CID of a command, useful when is needed to search the callback associated to a specific CID in the hardcoded table in the firmware RAM
