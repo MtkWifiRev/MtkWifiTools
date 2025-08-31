@@ -44,3 +44,8 @@ mapperremapper
 
 Used for dumping every address range present in the PCIe mapped memory table declared in mt76 into an ELF file. Works with mt7915, mt7916, mt7981, mt7986, mt7921, mt7922 and mt7925.
 It helped a lot for breaking mt7922's AES encryption.
+
+auto_detect
+==================
+
+Code example which shows how is possible to automatically get the mediatek wifi entry under sysfs, commonly used in other projects
