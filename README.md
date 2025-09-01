@@ -39,6 +39,11 @@ MT7961Merge.c
 
 Specific tool used for converting the ram + rom patch of the mt7921 (aka mt7961) hardware into an elf file, the difference if compared to the MT7981Merge, is that there is an initial padding of 1kb in the data region (otherwise the strings are mismatched).
 
+PatchIncorporator.c
+=================
+
+Manipulate the format of the ROM patch by merging it with the RAM firmware for bypassing the ROM crc32 integrity check
+
 mapperremapper
 =================
 
