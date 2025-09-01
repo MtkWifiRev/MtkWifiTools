@@ -22,7 +22,7 @@ simple tools which permits to set the log level and enable the wifi's log shell 
 ghidra/nds32.sinc
 ==================
 
-NDS32 ghidra plugin with the definitions for the unknown opcodes for the inlining function extension (still not working).
+NDS32 ghidra plugin with the definitions for the unknown opcodes for the inlining function extension (still not working, the next step is to implement the Pcode injection for handling also the function inlining extension).
 
 patch_ram_merger.c
 ==================
@@ -60,3 +60,8 @@ cmd_to_realid
 ==================
 
 Simple tool used for displaying the real CID of a command, useful when is needed to search the callback associated to a specific CID in the hardcoded table in the firmware RAM
+
+barepatcher
+==================
+
+RAM live patcher tool, it works by using the NDS32 gcc compiler under the hood, it compiles a program, extract its bytes and then it applies them by abusing the regidx/regval trick for a specific memory area, tested with mt7922 and permitted to bypass the firmware encryption.
