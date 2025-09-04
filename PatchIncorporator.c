@@ -557,7 +557,9 @@ int main(int argc, char *argv[]){
         MT_RAM_HDR      *MT_WIFI_RAM_HDR        	= NULL;
 
         unsigned char    MT_WIFI_RAM_FIRST_SEC  	= 0x01;
+	unsigned char    requires_overlap		= 0x00;
 	unsigned char    overlap_done			= 0x00;
+	unsigned char	 mt7981_based_fw		= 0x00;
 
         unsigned int     offset_counter         	= 0x00;
         unsigned int     final_rom_add_data     	= 0x00;
@@ -576,13 +578,18 @@ int main(int argc, char *argv[]){
 
 	/** get the ROM and RAM firmware files based on their names, for now supports only 1 ROM and 1 RAM file **/
         for( unsigned char x = 0; x < 3; x++ ){
-                if( strstr(argv[x], "_patch_mcu_") != NULL ){
+                if( strstr(argv[x], "_patch_mcu_") != NULL || strstr(argv[x], "rom_patch") != NULL ){
                         MT_WIFI_PATCH_NAME      	= argv[x];
                 }
-                if( strstr(argv[x], "WIFI_RAM_CODE") != NULL ){
+                if( strstr(argv[x], "WIFI_RAM_CODE") != NULL || strstr(argv[x], "_wm.bin") != NULL ){
                         MT_WIFI_RAM_NAME        	= argv[x];
                 }
         }
+
+	/** add exceptions: seems that the mt7981, mt7986, mt7915 and mt7916 do not override the ROM patch **/
+	if( strstr(MT_WIFI_PATCH_NAME, "rom_patch") != NULL ){
+		mt7981_based_fw				= 0x1;
+	}
 
         if( MT_WIFI_PATCH_NAME == NULL ){
                 printf("missing patch name!\n");
@@ -665,9 +672,11 @@ int main(int argc, char *argv[]){
 
         MT_WIFI_RAM_HDR                                 = (void *)(MT_WIFI_RAM_MMAP + MT_WIFI_RAM_SIZE - sizeof(*MT_WIFI_RAM_HDR));
 
-	MediatekCRCTableIdx				= check_fw(MT_WIFI_RAM_HDR);
+	if( mt7981_based_fw != 0x1 ){
+		MediatekCRCTableIdx			= check_fw(MT_WIFI_RAM_HDR);
+	}
 
-	if( MediatekCRCTableIdx < 0 ){
+	if( MediatekCRCTableIdx < 0 && mt7981_based_fw != 0x1 ){
 		printf("[!] failed to find a suitable HW for this firmware! aborting..\n");
 		goto RELEASE_FIRST_STAGE;
 	}
@@ -712,6 +721,7 @@ int main(int argc, char *argv[]){
 
                 if( addr != 0x00 ){
                 	if( addNode(MT_WIFI_RAM_LL, (void *)addr, len, 0x00, MT_WIFI_RAM_MMAP + offset_counter, false) < 0 ){
+				// TODO
                         	// need to add the proper error handling code
                         }
 	                offset_counter                 += len;
@@ -752,37 +762,39 @@ int main(int argc, char *argv[]){
                 /** now recalibrate the size of the RAM region which is overlapped with the ROM patch **/
 		{
 
-			MediatekRamRegionNode *LHead    = MT_WIFI_RAM_LL->head;
+			if( mt7981_based_fw != 0x1 ){
 
-        	        while ( LHead != NULL ) {
-                	        if( addr <= (uint32_t)LHead->addr && ( addr + len ) >= (uint32_t)LHead->addr ){
-					/** now we can modify the RAM region's size, add also the 4 bytes of the CRC size **/
-					LHead->new_length	= (uint16_t)( addr + len - (uint32_t)LHead->addr );
-					LHead->length	       -= LHead->new_length;
-					/** modify the address too for avoiding to overwrite the other ROM memory region, this would cause a mcu's crash **/
-					LHead->addr	       += LHead->new_length + MT_WIFI_RAM_CRC_SIZE;
-					/** move also the effective offset of the code **/
-					uint8_t *tmp_data_buck  = (uint8_t *)malloc(LHead->length);
+				MediatekRamRegionNode *LHead    = MT_WIFI_RAM_LL->head;
 
-					memcpy(
+        		        while ( LHead != NULL ) {
+                		        if( addr <= (uint32_t)LHead->addr && ( addr + len ) >= (uint32_t)LHead->addr ){
+						/** now we can modify the RAM region's size, add also the 4 bytes of the CRC size **/
+						LHead->new_length	= (uint16_t)( addr + len - (uint32_t)LHead->addr );
+						LHead->length	       -= LHead->new_length;
+						/** modify the address too for avoiding to overwrite the other ROM memory region, this would cause a mcu's crash **/
+						LHead->addr	       += LHead->new_length + MT_WIFI_RAM_CRC_SIZE;
+						/** move also the effective offset of the code **/
+						uint8_t *tmp_data_buck  = (uint8_t *)malloc(LHead->length);
+
+						memcpy(
 								tmp_data_buck,
 								LHead->data + LHead->new_length - 4 + PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareOpcFixup,
 								LHead->length
-					);
+						);
 
-					free(LHead->data);
-					LHead->data		= (uint8_t *)malloc(LHead->length);
-					memcpy(LHead->data,	tmp_data_buck,	LHead->length);
-					free(tmp_data_buck);
+						free(LHead->data);
+						LHead->data		= (uint8_t *)malloc(LHead->length);
+						memcpy(LHead->data,	tmp_data_buck,	LHead->length);
+						free(tmp_data_buck);
 
-					#ifdef DEBUG
-                                        printf("new len is %d, old len is: %d, address is: 0x%x\n", LHead->new_length, LHead->length, LHead->addr);
-					#endif
-					break;
+						#ifdef DEBUG
+                                        	printf("new len is %d, old len is: %d, address is: 0x%x\n", LHead->new_length, LHead->length, LHead->addr);
+						#endif
+						break;
+						}
+					}
 				}
 			}
-		}
-
 		/** add the node in the list **/
                 addNode(MT_WIFI_RAM_LL, (void *)addr, len, 0x00, dl, true);
 	}
@@ -910,32 +922,34 @@ int main(int argc, char *argv[]){
 
                 LHead    				= MT_WIFI_RAM_LL->head;
 
+		if( mt7981_based_fw != 0x1 ){
                 while ( LHead != NULL && !overlap_done ) {
-                	if( addr + LHead->new_length   == (uint32_t)LHead->addr && region->feature_set & FW_FEATURE_OVERRIDE_ADDR ){
-				region->len		= cpu_to_le32(LHead->new_length);
-				printf("[ram_fw] final address and size of the OVERLAP region: 0x%x %d\n", region->addr, region->len);
-				/** now overwrite the NEXT 4 bytes with the new crc value precomputed by us **/
+                		if( addr + LHead->new_length   == (uint32_t)LHead->addr && region->feature_set & FW_FEATURE_OVERRIDE_ADDR ){
+					region->len		= cpu_to_le32(LHead->new_length);
+					printf("[ram_fw] final address and size of the OVERLAP region: 0x%x %d\n", region->addr, region->len);
+					/** now overwrite the NEXT 4 bytes with the new crc value precomputed by us **/
 
-				printf("[CRC] swapped bytes %x %x %x %x %x at offset %d with the CRC: 0x%x\n",
-					MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x4],
-					MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x3],
-					MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x2],
-					MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x1],
-					LHead->new_length - 0x4,
-					PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareCRC32
-				);
+					printf("[CRC] swapped bytes %x %x %x %x %x at offset %d with the CRC: 0x%x\n",
+						MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x4],
+						MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x3],
+						MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x2],
+						MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - 0x1],
+						LHead->new_length - 0x4,
+						PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareCRC32
+					);
 
-				memcpy(
-					&MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - sizeof(uint32_t)],
-					&PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareCRC32,
-					sizeof(uint32_t) + PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareOpcFixup
-				);
+					memcpy(
+						&MT_WIFI_RAM_MMAP_FINAL[LHead->new_length - sizeof(uint32_t)],
+						&PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareCRC32,
+						sizeof(uint32_t) + PRECOMPUTED_CRC_TABLE[MediatekCRCTableIdx].MediatekWifiFirmwareOpcFixup
+					);
 
-				overlap_done		= 0x1;
-                                break;
-                        }
-			LHead				= LHead->next;
-                }
+					overlap_done		= 0x1;
+                        	        break;
+                        	}
+				LHead				= LHead->next;
+                	}
+		}
 
                 if( !( region->feature_set & FW_FEATURE_NON_DL ) && !( region->feature_set & FW_FEATURE_OVERRIDE_ADDR ) ) {
                         printf("[ram_fw] adding the FW_FEATURE_NON_DL for addr 0x%x\n", region->addr);
