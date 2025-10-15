@@ -16,33 +16,34 @@
 #include <dirent.h>
 
 #include <elf.h>
-#include <disasm.h>
+
+#include <dis-asm.h>
 
 #include <sys/mman.h>
 #include <sys/stat.h>
 
-#define IEEE80211_DEBUGFS               "/sys/kernel/debug/ieee80211/"
-#define IO_PATH                         "/sys/kernel/debug/ieee80211/%s/mt76/%s"
-#define MT76_DEBUGFS_PATH               "/sys/kernel/debug/ieee80211/phy%d/mt76/"
-#define MT76_DEBUGFS_PATH_IO            "/sys/kernel/debug/ieee80211/phy%d/mt76/%s"
+#define IEEE80211_DEBUGFS               	"/sys/kernel/debug/ieee80211/"
+#define IO_PATH                         	"/sys/kernel/debug/ieee80211/%s/mt76/%s"
+#define MT76_DEBUGFS_PATH               	"/sys/kernel/debug/ieee80211/phy%d/mt76/"
+#define MT76_DEBUGFS_PATH_IO            	"/sys/kernel/debug/ieee80211/phy%d/mt76/%s"
 
-#define REGIDX                          "regidx"
-#define REGVAL                          "regval"
+#define REGIDX                          	"regidx"
+#define REGVAL                          	"regval"
 
-#define MT76_MAX_LEN                    sizeof(MT76_DEBUGFS_PATH)
-#define REGIDX_MAX_LEN                  sizeof(IO_PATH) + sizeof(REGIDX)
-#define REGVAL_MAX_LEN                  sizeof(IO_PATH) + sizeof(REGVAL)
+#define MT76_MAX_LEN                    	sizeof(MT76_DEBUGFS_PATH)
+#define REGIDX_MAX_LEN                  	sizeof(IO_PATH) + sizeof(REGIDX)
+#define REGVAL_MAX_LEN                  	sizeof(IO_PATH) + sizeof(REGVAL)
 
-#define REGVAL_ALIGNMENT                sizeof(uint32_t)
-#define REGVAL_BUFSIZE                  sizeof("0x80000000")
-#define IO_COMMAND_LEN                  REGVAL_BUFSIZE
+#define REGVAL_ALIGNMENT                	sizeof(uint32_t)
+#define REGVAL_BUFSIZE                  	sizeof("0x80000000")
+#define IO_COMMAND_LEN                  	REGVAL_BUFSIZE
 
-#define MAX_REGVAL_ADDR                 REGVAL_BUFSIZE
+#define MAX_REGVAL_ADDR                 	REGVAL_BUFSIZE
 
 /** minimal disassemble context **/
 typedef struct{
-        char                            *insn_buffer;
-        bool                             reenter;
+        char                            	*insn_buffer;
+        bool                             	reenter;
 }MT76_STREAM_STATE;
 
 #define REGVAL_WRITE_FAIL                       2
@@ -140,7 +141,6 @@ static signed int  MT76_FPRINTF(void *CURRENT_DATA_STREAM, const char *fmt, ...)
         return 0;
 }
 
-
 static signed int  MT76_DISASSEMBLE_with_bytes_CODE(unsigned char  *MT76_REGVAL_BYTES, unsigned int MT76_REGVAL_LEN, unsigned long REGVAL_ADDR, unsigned char is_ram){
         if( MT76_REGVAL_BYTES == NULL ){
                 return false;
@@ -164,7 +164,7 @@ static signed int  MT76_DISASSEMBLE_with_bytes_CODE(unsigned char  *MT76_REGVAL_
         disassembler_ftype disasm               = {};
         disasm                                  = disassembler(disasm_info.arch, false, disasm_info.mach, NULL);
         if( disasm == NULL ){
-                //write(fd, "disasm is NULL\n", sizeof("disasm is NULL\n"));
+                printf("disasm is NULL\n");
                 exit(-1);
         }
 
@@ -187,37 +187,38 @@ static signed int  MT76_DISASSEMBLE_with_bytes_CODE(unsigned char  *MT76_REGVAL_
 }
 
 static signed int compile_buffer(unsigned long ADDR, unsigned char REGIDX_PATH[], unsigned char REGVAL_PATH[]){
-        signed int res_fd               = 0x00;
-	uint32_t   regval_res		= 0x00;
-        res_fd                          = open("code_output/nds32_code.c", O_RDONLY);
-
-        FILE *fp                        = NULL;
-        unsigned char gcc_output[4096]  = {};
-
-        memset(gcc_output,      0x00,   4096);
+        signed int res_fd               	= 0x00;
+	uint32_t   regval_res			= 0x00;
+        res_fd                          	= open("code_output/nds32_code.c", O_RDONLY);
 
         if( res_fd < 0 ){
                 return -1;
         }
 
         close(res_fd);
-        res_fd                          = open("./compiler/nds32le-linux-glibc-v3-upstream/bin/nds32le-linux-gcc", O_RDONLY) ;
+        res_fd                          	= open("./compiler/nds32le-linux-glibc-v3-upstream/bin/nds32le-linux-gcc", O_RDONLY) ;
 
         if( res_fd < 0 ){
                 return -2;
         }
         close(res_fd);
 
-        res_fd                          = open("code_output/linker_script/pp_nds32.ld", O_RDONLY) ;
+        res_fd                          	= open("code_output/linker_script/pp_nds32.ld", O_RDONLY) ;
 
         if( res_fd < 0 ){
                 return -2;
         }
         close(res_fd);
 
+	/**
         system("./compiler/nds32le-linux-glibc-v3-upstream/bin/nds32le-linux-gcc\
         -fno-PIC -nostdlib -mlittle-endian                                      \
-	-Wno-error								\
+        -Os -T code_output/linker_script/pp_nds32.ld  ./code_output/nds32_code.c\
+        -o ./binary_output/nds32_code.o");
+	**/
+
+	system("./compiler/nds32le-linux-glibc-v3-upstream/bin/nds32le-linux-gcc\
+        -fno-PIC -nostdlib -mlittle-endian                                      \
         -Os -T code_output/linker_script/pp_nds32.ld  ./code_output/nds32_code.c\
         -o ./binary_output/nds32_code.o");
 
@@ -226,37 +227,39 @@ static signed int compile_buffer(unsigned long ADDR, unsigned char REGIDX_PATH[]
 
 	system("rm -rf ./binary_output/nds32_code.o");
 
-	res_fd				= open("binary_output/nds32_code.obj", O_RDONLY);
-	struct stat *fs_stat		= NULL;
-	fs_stat				= (struct stat *)malloc(sizeof(struct stat));
+	res_fd					= open("binary_output/nds32_code.obj", O_RDONLY);
+	struct stat *fs_stat			= NULL;
+	fs_stat					= (struct stat *)malloc(sizeof(struct stat));
 	memset(fs_stat,		0x00,	sizeof(struct stat));
 	fstat(res_fd,	fs_stat);
-	unsigned char *mm_b		= (unsigned char *)mmap(
-					NULL,
-					fs_stat->st_size,
-					MAP_SHARED | MAP_FILE,
-					PROT_READ,
-					res_fd,
-					0x00
-					);
+	unsigned char *mm_b			= (unsigned char *)mmap(
+							NULL,
+							fs_stat->st_size,
+							MAP_SHARED | MAP_FILE,
+							PROT_READ,
+							res_fd,
+							0x00
+						);
 
-	unsigned char *mm		= (unsigned char *)malloc(fs_stat->st_size);
-	memset(mm,   0x00, 		fs_stat->st_size);
-	memcpy(mm,   mm_b, 		fs_stat->st_size);
+	unsigned char *mm			= (unsigned char *)malloc(fs_stat->st_size);
+	memset(mm,   0x00, 			fs_stat->st_size);
+	memcpy(mm,   mm_b, 			fs_stat->st_size);
         munmap(mm_b, fs_stat->st_size);
 
-	MT76_DISASSEMBLE_with_bytes_CODE(mm, fs_stat->st_size, ADDR, 0);
+	MT76_DISASSEMBLE_with_bytes_CODE(mm, 	fs_stat->st_size, ADDR, 0);
 
 	printf("\n\nstarting the patching..\n");
-
         // now start the patching
         for(unsigned int x = 0; x < fs_stat->st_size; x += 0x4){
                 REGIDX_SET_VALUE(REGIDX_PATH, ADDR + x);
-                usleep(2500);
+                usleep(550);
                 REGVAL_SET_VALUE(REGVAL_PATH, *(uint32_t *)(mm + x));
                 printf("set the value 0x%x and writing 0x%08x\n", ADDR + x, *(uint32_t *)(mm + x));
         }
-	printf("\n");
+
+	printf("--------------------\n");
+	printf("current patched RAM:\n");
+	printf("--------------------\n");
 
 	memset(mm, 0x00, fs_stat->st_size);
         for(unsigned int x = 0; x < fs_stat->st_size; x += 0x4){
@@ -265,7 +268,7 @@ static signed int compile_buffer(unsigned long ADDR, unsigned char REGIDX_PATH[]
                 REGVAL_GET_VALUE(REGVAL_PATH, &regval_res);
 		memcpy(mm + x, &regval_res, 0x4);
         }
-        MT76_DISASSEMBLE_with_bytes_CODE(mm, fs_stat->st_size, ADDR, 1);
+        MT76_DISASSEMBLE_with_bytes_CODE(mm, fs_stat->st_size, ADDR, 0);
 
 	free(mm);
         return 0;
@@ -278,7 +281,7 @@ static signed int disasm_ram(long ADDR, long mem_range, unsigned char REGIDX_PAT
 	memset(current_memory_range, 0x00,  mem_range);
         for(unsigned int x = 0; x < mem_range; x += 0x4){
                 REGIDX_SET_VALUE(REGIDX_PATH, ADDR + x);
-                usleep(2500);
+                usleep(550);
                 REGVAL_GET_VALUE(REGVAL_PATH, &regval_read);
 		memcpy(current_memory_range + x, &regval_read, 0x4);
         }
@@ -293,12 +296,12 @@ static signed int detect_mt76_devices(unsigned char REGIDX_PATH[], unsigned char
         memset(REGIDX_PATH, 0x00, REGIDX_MAX_LEN);
         memset(REGVAL_PATH, 0x00, REGVAL_MAX_LEN);
 
-        signed   int  OPEN_FD   = 0x00;
+        signed   int  OPEN_FD   	= 0x00;
 
-        DIR *dir                = NULL;
-        struct dirent *dirnt    = NULL;
+        DIR *dir                	= NULL;
+        struct dirent *dirnt    	= NULL;
 
-        dir                     = opendir(IEEE80211_DEBUGFS);
+        dir                     	= opendir(IEEE80211_DEBUGFS);
 
         if (dir) {
                 while ((dirnt = readdir(dir)) != NULL) {
@@ -321,35 +324,24 @@ static signed int detect_mt76_devices(unsigned char REGIDX_PATH[], unsigned char
         return -1;
 }
 
-int main(){
+int main(int argc, char *argv[]){
+        unsigned char REGIDX_PATH[REGIDX_MAX_LEN];
+        unsigned char REGVAL_PATH[REGVAL_MAX_LEN];
+
        if (geteuid() != 0) {
-                printf("root is necessary for working with the mt76 driver!\n");
+                printf("[!] root is necessary for working with the mt76 driver!\n");
                 exit(1);
         }
-	unsigned char REGIDX_PATH[REGIDX_MAX_LEN];
-	unsigned char REGVAL_PATH[REGVAL_MAX_LEN];
-	unsigned int  ADDR;
 
         if( detect_mt76_devices(REGIDX_PATH, REGVAL_PATH) == - 1 ){
-                printf("adapter not found\n");
+                printf("[!] adapter not found\n");
                 return 0;
         }
 
-	#ifdef DEBUG
-	printf("regidx path: %s regval path: %s\n", REGIDX_PATH, REGVAL_PATH);
-	#endif
-
-	printf("insert patching address:\n");
-	while( 1 ){
-		printf("> ");
-		scanf("%p", &ADDR);
-		if( ADDR % 4 != 0x00 ){
-			printf("[!] the address given must be 4 byte aligned!\n");
-		}else{
-			break;
-		}
-	}
-
+	unsigned long ADDR = 0x00071c80;
+	//printf("insert patching address:\n");
+	//printf("> ");
+	//scanf("%p", &ADDR);
 	disasm_ram(ADDR, 96, REGIDX_PATH, REGVAL_PATH);
 	return 0;
 }
