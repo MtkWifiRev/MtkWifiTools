@@ -2,6 +2,8 @@
 # find the "itb" register for the mt79xx firmware in ghidra
 # this is useful for the mt7902/mt7921/mt7922
 
+### USE THIS CODE ONLY IN THE WIFI_RAM_CODE !!!
+
 import sys
 
 from ghidra.program.model.lang import Register
