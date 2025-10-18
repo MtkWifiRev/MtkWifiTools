@@ -985,21 +985,16 @@ define pcodeop ex9_exec;
 imm9u_val: imm9u is ra4 & imm5u [ imm9u = ( ra4 * 32 ) + imm5u; ] { export *[const]:2 imm9u; }
 
 :ex9.it imm9u_val  is $(I16) & opsz=1 & opc6=0b110101 & ra4!=0 & imm5u & imm9u_val{
-	# complex case:
-        addr:4 = 0x96c238;
-        destination:4 = *[ram] addr;
+	# complex case: imm9u_val is obtained by imm5u and ra4
 }
 
 :ex9.it imm5u  is $(I16)  & opsz=1 & opc10=0b1011101010 & imm5u {
 	# simple case: imm5u is the index
 	# ex9_instr(imm5u);
-	addr:4 = 0xe0000000;
-	destination:4 = *[ram] addr;
 }
 
 :nop16    is $(I16)  & opc6=0b001001 & rt4=0b0000 & imm5u=0b00000 { }
 :nop16    is $(I16)  & opc5=0x12 & ra5=0x0 { }
-:nop16    is $(I16)  & opc5=0x0 & ra5=0x0 { }
 :ifret16  is $(I16)  & opc5=0x10 & ra5=0x1f { }
 :ifret16  is $(I32)  & Opc=0x12  & Sub6=0x30    & OpSz=0 { }
 :ifcall   is $(I32)  & OpSz=0    & Opc=0b100111 & Rt=0 & Ra=0 & Rb=0 { }
